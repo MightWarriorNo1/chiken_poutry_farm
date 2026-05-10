@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prosper.example.com/schemas/weight_estimate.schema.json",
+  "title": "WeightEstimate",
+  "description": "An AI-derived average flock weight estimate from a single inference cycle.",
+  "type": "object",
+  "required": [
+    "event_id", "device_id", "camera_id", "flock_id", "captured_at",
+    "processed_at", "model_version", "estimated_avg_weight_g", "confidence"
+  ],
+  "properties": {
+    "event_id":               { "type": "string", "format": "uuid" },
+    "device_id":              { "type": "string" },
+    "camera_id":              { "type": "string" },
+    "shed_id":                { "type": "string" },
+    "flock_id":               { "type": "string" },
+    "captured_at":            { "type": "string", "format": "date-time" },
+    "processed_at":           { "type": "string", "format": "date-time" },
+    "model_version":          { "type": "string" },
+    "estimated_avg_weight_g": { "type": "number",  "minimum": 0 },
+    "sample_size":            { "type": "integer", "minimum": 0 },
+    "confidence":             { "type": "number",  "minimum": 0, "maximum": 1 },
+    "bird_age_days":          { "type": "integer", "minimum": 0 },
+    "breed":                  { "type": "string" },
+    "snapshot_uri":           { "type": "string",  "format": "uri" }
+  },
+  "additionalProperties": false
+}

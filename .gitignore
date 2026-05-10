@@ -1,0 +1,52 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# ── Tooling caches ──
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Project-specific ──
+.env
+.env.local
+*.log
+data/
+runs/                    # ultralytics training outputs
+models/**/*.onnx         # model binaries — store via Git LFS or external registry
+models/**/*.pt
+!models/**/metadata.json
+!models/**/eval.md
+!models/**/README.md
+outbox.db                # local edge SQLite outbox
+outbox.db-journal
+outbox.db-wal
+outbox.db-shm
+
+# ── Snapshots and sample media (keep tiny fixtures only) ──
+tests/fixtures/sample_streams/*.mp4
+tests/fixtures/sample_streams/*.mov
+!tests/fixtures/sample_streams/.gitkeep

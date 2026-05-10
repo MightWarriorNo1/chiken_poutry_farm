@@ -1,0 +1,500 @@
+openapi: 3.1.0
+info:
+  title: Prosper PoultryVision AI — Edge Ingestion API
+  version: "0.1.0"
+  description: |
+    Contract between EdgeBox devices and the Prosper Cloud Backend.
+
+    **Direction:** Edge → Cloud (write) and Cloud → Edge (config pull only).
+    **Auth:** Device JWT, issued during provisioning. Carried as `Authorization: Bearer <token>`.
+    **Versioning:** Path-versioned (`/v1`). Additive fields are non-breaking. Breaking
+    changes bump the path version. Every payload also carries `schema_version` for
+    fine-grained tracking.
+
+    Companion JSON Schemas live in [contracts/events/](events/).
+  contact:
+    name: Prosper Edge Team
+servers:
+  - url: https://api.prosper.example.com
+    description: Cloud production
+  - url: http://localhost:8080
+    description: Local mock (Prism / Wiremock)
+
+security:
+  - DeviceJWT: []
+
+tags:
+  - name: ingest
+    description: Edge → Cloud event ingestion. All endpoints accept batched payloads.
+  - name: snapshots
+    description: Evidence image upload via presigned URLs.
+  - name: config
+    description: Edge configuration polling.
+
+paths:
+  /v1/ingest/detections:
+    post:
+      tags: [ingest]
+      operationId: ingestBirdDetections
+      summary: Submit a batch of bird-detection events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BirdDetectionBatch"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/ingest/weight-estimates:
+    post:
+      tags: [ingest]
+      operationId: ingestWeightEstimates
+      summary: Submit a batch of AI weight estimates.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeightEstimateBatch"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/ingest/huddling-scores:
+    post:
+      tags: [ingest]
+      operationId: ingestHuddlingScores
+      summary: Submit a batch of huddling-detection scores.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HuddlingScoreBatch"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/ingest/sensor-readings:
+    post:
+      tags: [ingest]
+      operationId: ingestSensorReadings
+      summary: Submit a batch of IoT sensor readings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensorReadingBatch"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/ingest/heartbeat:
+    post:
+      tags: [ingest]
+      operationId: ingestHeartbeat
+      summary: Edge device heartbeat (health + telemetry).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceHeartbeat"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/ingest/snapshots:
+    post:
+      tags: [snapshots]
+      operationId: requestSnapshotUploadUrl
+      summary: Request a presigned URL to upload a single evidence snapshot.
+      description: |
+        The edge requests a URL, then PUTs the binary directly to object storage.
+        The returned `snapshot_uri` is the value placed on subsequent detection /
+        huddling events as evidence.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SnapshotUploadRequest"
+      responses:
+        "200":
+          description: Presigned URL issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SnapshotUploadTicket"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/edge/config:
+    get:
+      tags: [config]
+      operationId: getEdgeConfig
+      summary: Fetch the latest configuration for this device.
+      description: |
+        Edge polls this endpoint on startup and on a schedule. Cloud returns
+        camera assignments, sensor thresholds, AI inference cadence, and
+        target model versions. ETag/If-None-Match supported for cheap polling.
+      parameters:
+        - in: header
+          name: If-None-Match
+          schema: { type: string }
+          required: false
+      responses:
+        "200":
+          description: Current config.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EdgeConfig"
+        "304":
+          description: Config unchanged since the supplied ETag.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    DeviceJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Accepted:
+      description: Batch accepted for processing.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/IngestAck" }
+    BadRequest:
+      description: Validation error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid device JWT.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    # ── Common ─────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      required: [error_code, message]
+      properties:
+        error_code: { type: string, example: VALIDATION_FAILED }
+        message:    { type: string }
+        details:    { type: object, additionalProperties: true }
+
+    IngestAck:
+      type: object
+      required: [accepted, schema_version]
+      properties:
+        schema_version:    { type: string, example: "0.1.0" }
+        accepted:          { type: integer, minimum: 0, description: "Events accepted." }
+        rejected:          { type: integer, minimum: 0, default: 0 }
+        rejected_reasons:
+          type: array
+          items: { type: string }
+
+    # ── Detection batch + item ─────────────────────────────────────────────
+    BirdDetectionBatch:
+      type: object
+      required: [schema_version, events]
+      properties:
+        schema_version: { type: string, example: "0.1.0" }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { $ref: "#/components/schemas/BirdDetection" }
+
+    BirdDetection:
+      type: object
+      required:
+        [event_id, device_id, camera_id, captured_at, processed_at,
+         model_version, bird_count, density_score, confidence]
+      properties:
+        event_id:        { type: string, format: uuid }
+        device_id:       { type: string }
+        camera_id:       { type: string }
+        shed_id:         { type: string }
+        flock_id:        { type: string }
+        zone_id:         { type: string }
+        captured_at:     { type: string, format: date-time }
+        processed_at:    { type: string, format: date-time }
+        model_version:   { type: string, example: "bird-detector@1.0.0" }
+        bird_count:      { type: integer, minimum: 0 }
+        density_score:   { type: number, minimum: 0, maximum: 1 }
+        confidence:      { type: number, minimum: 0, maximum: 1 }
+        snapshot_uri:    { type: string, format: uri }
+        bbox_centroids:
+          type: array
+          description: Normalized [x,y] coords in [0,1], used downstream for huddling.
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: number }
+
+    # ── Weight estimate batch + item ───────────────────────────────────────
+    WeightEstimateBatch:
+      type: object
+      required: [schema_version, events]
+      properties:
+        schema_version: { type: string }
+        events:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/WeightEstimate" }
+
+    WeightEstimate:
+      type: object
+      required:
+        [event_id, device_id, camera_id, flock_id, captured_at,
+         processed_at, model_version, estimated_avg_weight_g, confidence]
+      properties:
+        event_id:               { type: string, format: uuid }
+        device_id:              { type: string }
+        camera_id:              { type: string }
+        shed_id:                { type: string }
+        flock_id:               { type: string }
+        captured_at:            { type: string, format: date-time }
+        processed_at:           { type: string, format: date-time }
+        model_version:          { type: string }
+        estimated_avg_weight_g: { type: number, minimum: 0 }
+        sample_size:            { type: integer, minimum: 0 }
+        confidence:             { type: number, minimum: 0, maximum: 1 }
+        bird_age_days:          { type: integer, minimum: 0 }
+        breed:                  { type: string }
+        snapshot_uri:           { type: string, format: uri }
+
+    # ── Huddling batch + item ──────────────────────────────────────────────
+    HuddlingScoreBatch:
+      type: object
+      required: [schema_version, events]
+      properties:
+        schema_version: { type: string }
+        events:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/HuddlingScore" }
+
+    HuddlingScore:
+      type: object
+      required:
+        [event_id, device_id, camera_id, captured_at, processed_at,
+         model_version, huddling_score]
+      properties:
+        event_id:        { type: string, format: uuid }
+        device_id:       { type: string }
+        camera_id:       { type: string }
+        shed_id:         { type: string }
+        flock_id:        { type: string }
+        zone_id:         { type: string, description: "If zones configured." }
+        captured_at:     { type: string, format: date-time }
+        processed_at:    { type: string, format: date-time }
+        model_version:   { type: string }
+        huddling_score:  { type: number, minimum: 0, maximum: 1 }
+        cluster_count:   { type: integer, minimum: 0 }
+        largest_cluster_pct:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Fraction of detected birds in the largest cluster.
+        snapshot_uri:    { type: string, format: uri }
+
+    # ── Sensor reading batch + item ────────────────────────────────────────
+    SensorReadingBatch:
+      type: object
+      required: [schema_version, events]
+      properties:
+        schema_version: { type: string }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { $ref: "#/components/schemas/SensorReading" }
+
+    SensorReading:
+      type: object
+      required: [event_id, device_id, sensor_id, sensor_type, value, unit, recorded_at]
+      properties:
+        event_id:    { type: string, format: uuid }
+        device_id:   { type: string }
+        sensor_id:   { type: string }
+        sensor_type:
+          type: string
+          enum: [temperature, humidity, ammonia, co2, water_flow, water_pressure]
+        shed_id:     { type: string }
+        zone_id:     { type: string }
+        value:       { type: number }
+        unit:        { type: string, example: "celsius" }
+        recorded_at: { type: string, format: date-time }
+        quality:
+          type: string
+          enum: [good, suspect, bad]
+          default: good
+
+    # ── Device heartbeat ──────────────────────────────────────────────────
+    DeviceHeartbeat:
+      type: object
+      required: [schema_version, device_id, reported_at, status, software_version]
+      properties:
+        schema_version:   { type: string }
+        device_id:        { type: string }
+        reported_at:      { type: string, format: date-time }
+        status:
+          type: string
+          enum: [healthy, degraded, error]
+        software_version: { type: string }
+        ai_models:
+          type: array
+          items:
+            type: object
+            required: [name, version]
+            properties:
+              name:    { type: string }
+              version: { type: string }
+        cpu_pct:        { type: number, minimum: 0, maximum: 100 }
+        memory_pct:     { type: number, minimum: 0, maximum: 100 }
+        storage_pct:    { type: number, minimum: 0, maximum: 100 }
+        cameras:
+          type: array
+          items:
+            type: object
+            required: [camera_id, status]
+            properties:
+              camera_id:        { type: string }
+              status:           { type: string, enum: [online, offline, degraded] }
+              last_frame_at:    { type: string, format: date-time }
+        sensors:
+          type: array
+          items:
+            type: object
+            required: [sensor_id, status]
+            properties:
+              sensor_id:        { type: string }
+              status:           { type: string, enum: [online, offline] }
+              last_reading_at:  { type: string, format: date-time }
+        outbox_pending:   { type: integer, minimum: 0 }
+
+    # ── Snapshot upload ────────────────────────────────────────────────────
+    SnapshotUploadRequest:
+      type: object
+      required: [device_id, camera_id, captured_at, content_type]
+      properties:
+        device_id:    { type: string }
+        camera_id:    { type: string }
+        captured_at:  { type: string, format: date-time }
+        content_type: { type: string, example: "image/jpeg" }
+        size_bytes:   { type: integer, minimum: 1 }
+        purpose:
+          type: string
+          enum: [detection, weight, huddling, manual]
+
+    SnapshotUploadTicket:
+      type: object
+      required: [snapshot_uri, upload_url, expires_at, method]
+      properties:
+        snapshot_uri: { type: string, format: uri, description: "Reference for events." }
+        upload_url:   { type: string, format: uri }
+        method:       { type: string, enum: [PUT, POST] }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        expires_at:   { type: string, format: date-time }
+
+    # ── Edge config (Cloud → Edge) ─────────────────────────────────────────
+    EdgeConfig:
+      type: object
+      required: [schema_version, device_id, issued_at, cameras, sensors, ai, sync]
+      properties:
+        schema_version: { type: string }
+        device_id:      { type: string }
+        issued_at:      { type: string, format: date-time }
+        cameras:
+          type: array
+          items: { $ref: "#/components/schemas/CameraConfig" }
+        sensors:
+          type: array
+          items: { $ref: "#/components/schemas/SensorConfig" }
+        ai:
+          type: object
+          required: [frame_interval_seconds, models]
+          properties:
+            frame_interval_seconds: { type: number, minimum: 0.1 }
+            models:
+              type: array
+              items:
+                type: object
+                required: [name, version]
+                properties:
+                  name:    { type: string }
+                  version: { type: string }
+                  download_url: { type: string, format: uri }
+        sync:
+          type: object
+          properties:
+            heartbeat_interval_seconds: { type: integer, minimum: 5 }
+            batch_size:                 { type: integer, minimum: 1 }
+            flush_interval_seconds:     { type: integer, minimum: 1 }
+
+    CameraConfig:
+      type: object
+      required: [camera_id, source_uri, role]
+      properties:
+        camera_id:  { type: string }
+        source_uri: { type: string, description: "rtsp:// or file://" }
+        role:
+          type: string
+          enum: [general, weight, huddling, feeder_drinker]
+        shed_id:    { type: string }
+        zone_id:    { type: string }
+        calibration:
+          type: object
+          additionalProperties: true
+
+    SensorConfig:
+      type: object
+      required: [sensor_id, sensor_type, source]
+      properties:
+        sensor_id:   { type: string }
+        sensor_type:
+          type: string
+          enum: [temperature, humidity, ammonia, co2, water_flow, water_pressure]
+        shed_id:     { type: string }
+        zone_id:     { type: string }
+        source:
+          type: object
+          required: [protocol]
+          properties:
+            protocol:
+              type: string
+              enum: [mqtt, modbus, simulator]
+            topic:    { type: string }
+            address:  { type: string }
+            register: { type: integer }
+        thresholds:
+          type: object
+          properties:
+            min: { type: number }
+            max: { type: number }

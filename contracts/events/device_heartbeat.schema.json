@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prosper.example.com/schemas/device_heartbeat.schema.json",
+  "title": "DeviceHeartbeat",
+  "description": "Periodic health and telemetry beacon from an EdgeBox.",
+  "type": "object",
+  "required": ["schema_version", "device_id", "reported_at", "status", "software_version"],
+  "properties": {
+    "schema_version":   { "type": "string" },
+    "device_id":        { "type": "string" },
+    "reported_at":      { "type": "string", "format": "date-time" },
+    "status":           { "type": "string", "enum": ["healthy", "degraded", "error"] },
+    "software_version": { "type": "string" },
+    "ai_models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version"],
+        "properties": {
+          "name":    { "type": "string" },
+          "version": { "type": "string" }
+        }
+      }
+    },
+    "cpu_pct":     { "type": "number", "minimum": 0, "maximum": 100 },
+    "memory_pct":  { "type": "number", "minimum": 0, "maximum": 100 },
+    "storage_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+    "cameras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["camera_id", "status"],
+        "properties": {
+          "camera_id":     { "type": "string" },
+          "status":        { "type": "string", "enum": ["online", "offline", "degraded"] },
+          "last_frame_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "sensors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sensor_id", "status"],
+        "properties": {
+          "sensor_id":       { "type": "string" },
+          "status":          { "type": "string", "enum": ["online", "offline"] },
+          "last_reading_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "outbox_pending": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

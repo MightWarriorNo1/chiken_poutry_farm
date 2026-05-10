@@ -1,0 +1,41 @@
+# Local development stack: edge runtime + MQTT broker + Prism mock for cloud API.
+# Usage:  docker compose -f docker/docker-compose.dev.yml up
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: prosper-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  cloud-mock:
+    image: stoplight/prism:5
+    container_name: prosper-cloud-mock
+    command: mock -h 0.0.0.0 /tmp/openapi.yaml
+    ports:
+      - "4010:4010"
+    volumes:
+      - ../contracts:/tmp:ro
+
+  edge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: prosper-edge
+    depends_on: [mosquitto, cloud-mock]
+    environment:
+      EDGE_DEVICE_ID: edge-dev-001
+      EDGE_CLOUD__BASE_URL: http://cloud-mock:4010
+      EDGE_MQTT__HOST: mosquitto
+      EDGE_MQTT__ENABLED: "false"   # flip to true once sensor sim publishes to MQTT
+      EDGE_LOG_FORMAT: console
+    volumes:
+      - ../models:/app/models:ro
+      - edge-state:/app/state
+    restart: unless-stopped
+
+volumes:
+  edge-state:

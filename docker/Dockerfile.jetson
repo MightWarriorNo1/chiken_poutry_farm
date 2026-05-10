@@ -1,0 +1,30 @@
+# Jetson-targeted image with CUDA + TensorRT.
+# Base image must match the JetPack version on the device.
+# See https://catalog.ngc.nvidia.com/orgs/nvidia/containers/l4t-jetpack
+
+FROM nvcr.io/nvidia/l4t-jetpack:r36.3.0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3-pip \
+        libglib2.0-0 libgl1 \
+        ca-certificates tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use a venv to avoid conflicting with system Python.
+RUN python3.11 -m venv /opt/edge-venv
+ENV PATH="/opt/edge-venv/bin:${PATH}"
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+# On Jetson, prefer onnxruntime-gpu and the TensorRT EP at runtime.
+RUN pip install --upgrade pip && pip install ".[ai,sensors]"
+
+COPY models ./models
+COPY contracts ./contracts
+
+ENTRYPOINT ["/usr/bin/tini", "--", "prosper-edge"]
