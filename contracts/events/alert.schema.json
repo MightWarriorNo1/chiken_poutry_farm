@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prosper.example.com/schemas/alert.schema.json",
+  "title": "Alert",
+  "description": "An operational signal raised by the edge. Cloud owns lifecycle (ack/resolve/false-positive).",
+  "type": "object",
+  "required": [
+    "event_id", "device_id", "alert_type", "severity", "source",
+    "raised_at", "message"
+  ],
+  "properties": {
+    "event_id":   { "type": "string", "format": "uuid" },
+    "device_id":  { "type": "string", "minLength": 1 },
+    "alert_type": {
+      "type": "string",
+      "enum": [
+        "camera_offline",
+        "sensor_offline",
+        "sensor_out_of_range",
+        "high_huddling",
+        "weight_below_target",
+        "edge_device_degraded",
+        "edge_device_offline",
+        "inference_swap_failure"
+      ]
+    },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "source":   { "type": "string", "enum": ["camera", "sensor", "ai", "device"] },
+    "raised_at": { "type": "string", "format": "date-time" },
+    "message":   { "type": "string", "minLength": 1 },
+
+    "shed_id":   { "type": "string" },
+    "zone_id":   { "type": "string" },
+    "flock_id":  { "type": "string" },
+    "camera_id": { "type": "string" },
+    "sensor_id": { "type": "string" },
+
+    "snapshot_uri":    { "type": "string", "format": "uri" },
+    "correlation_key": { "type": "string" },
+
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

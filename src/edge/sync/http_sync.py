@@ -30,6 +30,7 @@ _INGEST_ROUTES: dict[EventType, str] = {
     EventType.SENSOR_READING: "/sensor-readings",
     EventType.DEVICE_HEARTBEAT: "/heartbeat",
     EventType.MANUAL_WEIGHT_SAMPLE: "/manual-weights",
+    EventType.ALERT: "/alerts",
 }
 
 

@@ -23,6 +23,7 @@ class EventType(StrEnum):
     SENSOR_READING = "sensor_reading"
     DEVICE_HEARTBEAT = "device_heartbeat"
     MANUAL_WEIGHT_SAMPLE = "manual_weight_sample"
+    ALERT = "alert"
 
 
 class EventEnvelope(BaseModel):

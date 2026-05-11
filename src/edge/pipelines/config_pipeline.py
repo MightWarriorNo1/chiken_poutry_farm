@@ -13,6 +13,7 @@ import anyio
 import structlog
 
 from edge.config_sources.source import EdgeConfigSource
+from edge.supervisors.alert_supervisor import AlertSupervisor
 from edge.supervisors.camera_supervisor import CameraSupervisor
 from edge.supervisors.inference_supervisor import InferenceSupervisor
 from edge.supervisors.sensor_supervisor import SensorSupervisor
@@ -27,12 +28,14 @@ class ConfigPipeline:
         camera_supervisor: CameraSupervisor,
         inference_supervisor: InferenceSupervisor | None = None,
         sensor_supervisor: SensorSupervisor | None = None,
+        alert_supervisor: AlertSupervisor | None = None,
         poll_interval_seconds: int = 300,
     ) -> None:
         self._source = source
         self._cameras = camera_supervisor
         self._inference = inference_supervisor
         self._sensors = sensor_supervisor
+        self._alerts = alert_supervisor
         self._poll_interval = poll_interval_seconds
 
     async def run(self) -> None:
@@ -53,6 +56,10 @@ class ConfigPipeline:
         sensors = config.get("sensors") or []
         if self._sensors is not None:
             await self._sensors.apply(sensors)
+
+        # Alert thresholds depend on sensor config — push them after sensors are wired.
+        if self._alerts is not None:
+            await self._alerts.apply(config)
 
         cameras = config.get("cameras") or []
         await self._cameras.apply(cameras)

@@ -81,6 +81,26 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/ingest/alerts:
+    post:
+      tags: [ingest]
+      operationId: ingestAlerts
+      summary: Submit a batch of alerts raised by the edge.
+      description: |
+        The edge raises alerts in the **open** state only. Cloud owns the rest of
+        the lifecycle (acknowledge / resolve / false-positive). Repeat alerts for
+        the same condition share a `correlation_key` so the cloud can dedupe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertBatch"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /v1/ingest/manual-weights:
     post:
       tags: [ingest]
@@ -341,6 +361,51 @@ components:
           maximum: 1
           description: Fraction of detected birds in the largest cluster.
         snapshot_uri:    { type: string, format: uri }
+
+    # ── Alert batch + item ────────────────────────────────────────────────
+    AlertBatch:
+      type: object
+      required: [schema_version, events]
+      properties:
+        schema_version: { type: string }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: "#/components/schemas/Alert" }
+
+    Alert:
+      type: object
+      required:
+        [event_id, device_id, alert_type, severity, source, raised_at, message]
+      properties:
+        event_id:    { type: string, format: uuid }
+        device_id:   { type: string }
+        alert_type:
+          type: string
+          enum:
+            - camera_offline
+            - sensor_offline
+            - sensor_out_of_range
+            - high_huddling
+            - weight_below_target
+            - edge_device_degraded
+            - edge_device_offline
+            - inference_swap_failure
+        severity:    { type: string, enum: [low, medium, high, critical] }
+        source:      { type: string, enum: [camera, sensor, ai, device] }
+        raised_at:   { type: string, format: date-time }
+        message:     { type: string }
+        shed_id:     { type: string }
+        zone_id:     { type: string }
+        flock_id:    { type: string }
+        camera_id:   { type: string }
+        sensor_id:   { type: string }
+        snapshot_uri:    { type: string, format: uri }
+        correlation_key: { type: string }
+        metrics:
+          type: object
+          additionalProperties: true
 
     # ── Manual weight sample batch + item ─────────────────────────────────
     ManualWeightSampleBatch:

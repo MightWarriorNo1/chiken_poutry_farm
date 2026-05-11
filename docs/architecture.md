@@ -46,6 +46,7 @@ adapters depend on ports + domain; domain depends on nothing.
 | [sync/](../src/edge/sync/) | Cloud transport (HTTP, future gRPC). | `CloudSync` |
 | [config_sources/](../src/edge/config_sources/) | Where the `EdgeConfig` comes from (cloud poll, YAML file). | `EdgeConfigSource` |
 | [supervisors/](../src/edge/supervisors/) | Reconcilers: desired-vs-actual state for fleets of pipelines. | — |
+| [alerts/](../src/edge/alerts/) | Rule-based alert engine; `AlertingOutbox` wraps the regular outbox so the engine sees every event. | `AlertRule` |
 | [pipelines/](../src/edge/pipelines/) | Long-running coroutines that compose the above. | — |
 
 ## Concurrency model

@@ -21,6 +21,14 @@ from typing import Any
 import anyio
 import structlog
 
+from edge.alerts.alerting_outbox import AlertingOutbox
+from edge.alerts.engine import AlertEngine
+from edge.alerts.rules import (
+    CameraOfflineRule,
+    HighHuddlingRule,
+    SensorOutOfRangeRule,
+    WeightBelowTargetRule,
+)
 from edge.capture.factory import build_frame_source
 from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
@@ -45,6 +53,7 @@ from edge.pipelines.heartbeat_pipeline import HeartbeatPipeline
 from edge.pipelines.sensor_pipeline import SensorPipeline
 from edge.pipelines.sync_pipeline import SyncPipeline
 from edge.sensors.factory import build_sensor_reader
+from edge.supervisors.alert_supervisor import AlertSupervisor
 from edge.supervisors.camera_supervisor import CameraSupervisor
 from edge.supervisors.inference_supervisor import InferenceSupervisor, ModelHandler
 from edge.supervisors.sensor_supervisor import SensorSupervisor
@@ -61,11 +70,26 @@ async def amain(settings: Settings) -> None:
         version=settings.software_version,
     )
 
-    outbox = SqliteOutbox(settings.storage.outbox_path)
-    await outbox.init()
+    inner_outbox = SqliteOutbox(settings.storage.outbox_path)
+    await inner_outbox.init()
 
     cloud = HttpCloudSync(settings.cloud)
     await cloud.start()
+
+    # ── Alerts: rules + engine + outbox wrapper ────────────────────────────
+    sensor_oor_rule = SensorOutOfRangeRule(device_id=settings.device_id)
+    alert_rules = [
+        CameraOfflineRule(device_id=settings.device_id, threshold_seconds=60.0),
+        sensor_oor_rule,
+        HighHuddlingRule(device_id=settings.device_id, threshold=0.7, consecutive_frames=3),
+        WeightBelowTargetRule(device_id=settings.device_id, threshold_pct=0.15),
+    ]
+    alert_engine = AlertEngine(outbox=inner_outbox, rules=alert_rules)
+    alert_sup = AlertSupervisor(sensor_out_of_range=sensor_oor_rule)
+
+    # All pipelines write through the wrapper so the engine sees every event.
+    # The engine writes its own alerts to inner_outbox to avoid feedback.
+    outbox = AlertingOutbox(inner=inner_outbox, engine=alert_engine)
 
     # ── Inference: stub on boot, hot-swappable per model name from EdgeConfig.ai.models ──
     detector_registry = DetectorRegistry(initial=StubBirdDetector(seed=None))
@@ -100,8 +124,9 @@ async def amain(settings: Settings) -> None:
         outbox=outbox,
         interval_seconds=settings.cadence.heartbeat_interval_seconds,
     )
+    # Sync drains the inner outbox directly — no need to round-trip through the wrapper.
     sync_pipe = SyncPipeline(
-        outbox=outbox,
+        outbox=inner_outbox,
         cloud=cloud,
         batch_size=settings.cadence.sync_batch_size,
         flush_interval_seconds=settings.cadence.sync_flush_interval_seconds,
@@ -129,7 +154,7 @@ async def amain(settings: Settings) -> None:
                     bird_detector=proxied_detector,
                     weight_estimator=proxied_estimator,
                     huddling_detector=proxied_huddling,
-                    outbox=outbox,
+                    outbox=outbox,                       # AlertingOutbox — engine sees every event
                     shed_id=cam_cfg.get("shed_id"),
                     flock_id=cam_cfg.get("flock_id"),
                     flock_age_days=cam_cfg.get("flock_age_days"),
@@ -155,16 +180,18 @@ async def amain(settings: Settings) -> None:
                 camera_supervisor=camera_sup,
                 inference_supervisor=inference_sup,
                 sensor_supervisor=sensor_sup,
+                alert_supervisor=alert_sup,
                 poll_interval_seconds=settings.cadence.config_poll_interval_seconds,
             )
 
             tg.start_soon(heartbeat_pipe.run)
             tg.start_soon(sync_pipe.run)
+            tg.start_soon(alert_engine.run)
             tg.start_soon(config_pipe.run)
             tg.start_soon(_install_signal_handler, tg.cancel_scope)
     finally:
         await cloud.close()
-        await outbox.close()
+        await inner_outbox.close()
         log.info("edge.stopped")
 
 
