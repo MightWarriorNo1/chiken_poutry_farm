@@ -34,6 +34,7 @@ from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
 from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
+from edge.dashboard.demo import DemoManager
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.projecting_outbox import ProjectingOutbox
 from edge.dashboard.server import threshold_provider_from_supervisor
@@ -51,6 +52,7 @@ from edge.inference.models.stub_weight_estimator import StubWeightEstimator
 from edge.inference.proxied_detector import DetectorRegistry, ProxiedBirdDetector
 from edge.inference.proxied_estimator import EstimatorRegistry, ProxiedWeightEstimator
 from edge.inference.proxied_huddling import HuddlingRegistry, ProxiedHuddlingDetector
+from edge.outbox.null_outbox import NullOutbox
 from edge.outbox.sqlite_outbox import SqliteOutbox
 from edge.pipelines.config_pipeline import ConfigPipeline
 from edge.pipelines.frame_pipeline import FramePipeline
@@ -115,6 +117,17 @@ async def amain(settings: Settings) -> None:
         event_bus=event_bus,
     )
 
+    # Demo outbox: same dashboard tee + alert engine, but a no-op at the bottom
+    # so demo events never reach SqliteOutbox → never picked up by SyncPipeline
+    # → never reach the cloud. The dashboard still sees everything.
+    demo_inner = NullOutbox()
+    demo_alerting = AlertingOutbox(inner=demo_inner, engine=alert_engine)
+    demo_outbox = ProjectingOutbox(
+        inner=demo_alerting,
+        read_model=read_model,
+        event_bus=event_bus,
+    )
+
     # ── Inference: stub on boot, hot-swappable per model name from EdgeConfig.ai.models ──
     detector_registry = DetectorRegistry(initial=StubBirdDetector(seed=None))
     proxied_detector = ProxiedBirdDetector(detector_registry)
@@ -173,13 +186,16 @@ async def amain(settings: Settings) -> None:
             def make_frame_pipeline(cam_cfg: dict[str, Any]) -> FramePipeline:
                 source = build_frame_source(cam_cfg, target_fps=target_fps)
                 broadcaster = stream_registry.get_or_create(cam_cfg["camera_id"])
+                # Demo cameras get a sync-bypassing outbox; everything else
+                # uses the durable one that SyncPipeline drains to the cloud.
+                target_outbox = demo_outbox if cam_cfg.get("role") == "demo" else outbox
                 return FramePipeline(
                     device_id=settings.device_id,
                     source=source,
                     bird_detector=proxied_detector,
                     weight_estimator=proxied_estimator,
                     huddling_detector=proxied_huddling,
-                    outbox=outbox,                       # AlertingOutbox — engine sees every event
+                    outbox=target_outbox,
                     shed_id=cam_cfg.get("shed_id"),
                     flock_id=cam_cfg.get("flock_id"),
                     flock_age_days=cam_cfg.get("flock_age_days"),
@@ -201,6 +217,15 @@ async def amain(settings: Settings) -> None:
 
             camera_sup = CameraSupervisor(task_group=tg, factory=make_frame_pipeline)
             sensor_sup = SensorSupervisor(task_group=tg, factory=make_sensor_pipeline)
+
+            # DemoManager hooks the supervisor's completion callback in __init__
+            # so a finished demo video clears the extras overlay automatically.
+            demo_manager = DemoManager(
+                videos_dir=Path("demo/recordings"),
+                camera_supervisor=camera_sup,
+                read_model=read_model,
+            )
+
             config_pipe = ConfigPipeline(
                 source=config_source,
                 camera_supervisor=camera_sup,
@@ -227,6 +252,8 @@ async def amain(settings: Settings) -> None:
                     threshold_provider=threshold_provider_from_supervisor(sensor_sup),
                     static_dir=static_dir if static_dir.is_dir() else None,
                     stream_registry=stream_registry,
+                    camera_supervisor=camera_sup,
+                    demo_manager=demo_manager,
                 )
                 tg.start_soon(dashboard_pipe.run)
 

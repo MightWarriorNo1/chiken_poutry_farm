@@ -4,12 +4,13 @@ import { useState } from "react";
 import { api } from "./api";
 import { AlertsTab } from "./components/AlertsTab";
 import { CamerasTab } from "./components/CamerasTab";
+import { DemoTab } from "./components/DemoTab";
 import { OverviewTab } from "./components/OverviewTab";
 import { SensorsTab } from "./components/SensorsTab";
 import { StatusBar } from "./components/StatusBar";
 import { Tabs } from "./components/Tabs";
 
-type TabId = "overview" | "cameras" | "sensors" | "alerts";
+type TabId = "overview" | "cameras" | "sensors" | "alerts" | "demo";
 
 export function App() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -20,6 +21,14 @@ export function App() {
     queryKey: ["status"],
     queryFn: api.status,
     refetchInterval: 10_000,
+  });
+
+  // Lightweight poll so the "Demo" tab can show a running indicator without
+  // clicking into it. Cheap — 5s cadence on a single ~250 B endpoint.
+  const demoStatus = useQuery({
+    queryKey: ["demo", "status"],
+    queryFn: api.demoStatus,
+    refetchInterval: 5_000,
   });
 
   return (
@@ -43,6 +52,10 @@ export function App() {
             label: "Alerts",
             count: status.data?.open_alert_count,
           },
+          {
+            id: "demo",
+            label: demoStatus.data?.running ? "Demo ●" : "Demo",
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -52,6 +65,7 @@ export function App() {
         {tab === "cameras" && <CamerasTab />}
         {tab === "sensors" && <SensorsTab />}
         {tab === "alerts" && <AlertsTab />}
+        {tab === "demo" && <DemoTab />}
       </main>
       <footer className="border-t border-ink-800 bg-ink-950 px-6 py-3 text-center text-xs text-slate-600">
         Prosper PoultryVision AI · on-device dashboard · read-only

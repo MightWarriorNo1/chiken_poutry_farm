@@ -26,10 +26,15 @@ def build_frame_source(cfg: dict[str, Any], target_fps: float = 1.0) -> FrameSou
             path_str = path_str[1:]
         from edge.capture.file_source import FileFrameSource  # noqa: PLC0415
 
+        # `loop` defaults to True (matches existing dev-frames behaviour) but is
+        # turned off for demos so a recorded video runs once and ends, which is
+        # what the dashboard's "Demo finished" signal hangs off.
+        loop = bool(cfg.get("loop", True))
         return FileFrameSource(
             camera_id=camera_id,
             path=Path(path_str),
             target_fps=target_fps,
+            loop=loop,
         )
 
     if parsed.scheme in {"rtsp", "rtsps", "http", "https"}:

@@ -19,6 +19,7 @@ import structlog
 import uvicorn
 
 from edge.config import DashboardSettings
+from edge.dashboard.demo import DemoManager
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.read_model import ReadModel
 from edge.dashboard.server import (
@@ -26,6 +27,7 @@ from edge.dashboard.server import (
     create_app,
 )
 from edge.dashboard.stream_registry import StreamRegistry
+from edge.supervisors.camera_supervisor import CameraSupervisor
 
 log = structlog.get_logger(__name__)
 
@@ -40,6 +42,8 @@ class DashboardPipeline:
         threshold_provider: ThresholdProvider,
         static_dir: Path | None,
         stream_registry: StreamRegistry | None = None,
+        camera_supervisor: CameraSupervisor | None = None,
+        demo_manager: DemoManager | None = None,
     ) -> None:
         self._read_model = read_model
         self._event_bus = event_bus
@@ -47,6 +51,8 @@ class DashboardPipeline:
         self._threshold_provider = threshold_provider
         self._static_dir = static_dir
         self._stream_registry = stream_registry
+        self._camera_supervisor = camera_supervisor
+        self._demo_manager = demo_manager
 
     async def run(self) -> None:
         app = create_app(
@@ -56,6 +62,8 @@ class DashboardPipeline:
             threshold_provider=self._threshold_provider,
             static_dir=self._static_dir,
             stream_registry=self._stream_registry,
+            camera_supervisor=self._camera_supervisor,
+            demo_manager=self._demo_manager,
         )
 
         config = uvicorn.Config(

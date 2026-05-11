@@ -155,3 +155,71 @@ class LiveEventView(_View):
     type: str          # event_type
     at: datetime
     payload: dict[str, Any]
+
+
+# ── Cameras: source/type browser (Phase 2) ──────────────────────────────────
+
+
+class CameraSourceView(_View):
+    """Configured-camera surface for the type-filter UI.
+
+    Sourced from CameraSupervisor (config-driven) and decorated with live
+    status from the FrameBroadcaster (has-frames / has-viewers). Decoupled
+    from CameraView, which is detection-driven and only populates after the
+    first inference event lands in the read model.
+    """
+
+    camera_id: str
+    source_uri: str
+    source_type: str           # rtsp | http | usb | csi | gstreamer | file | unknown
+    source_type_label: str
+    role: str | None = None    # "demo" for demo cameras, None otherwise
+    shed_id: str | None = None
+    zone_id: str | None = None
+    flock_id: str | None = None
+
+    running: bool = False
+    has_frames: bool = False   # broadcaster has produced at least one annotated frame
+    viewer_count_hint: int = 0  # 0 or 1; 1 means at least one live-view tab is open
+    stream_url: str | None = None
+
+
+# ── Demo tab (Phase 3) ──────────────────────────────────────────────────────
+
+
+class DemoVideoView(_View):
+    """One recorded video that can be replayed through the pipeline."""
+
+    name: str                  # bare filename, used as the start() identifier
+    path: str                  # absolute path on the device, for logs/debug
+    size_bytes: int
+    duration_seconds: float | None = None
+    fps: float | None = None
+    width: int | None = None
+    height: int | None = None
+    frame_count: int | None = None
+
+
+class DemoStatusView(_View):
+    """Snapshot of the demo subsystem — one running demo at a time."""
+
+    running: bool
+    video: str | None = None
+    camera_id: str | None = None       # always "demo" when running
+    started_at: datetime | None = None
+    elapsed_seconds: float | None = None
+    duration_seconds: float | None = None
+    frame_count: int | None = None
+    bird_count: int | None = None      # latest bird count for the demo camera
+    huddling_score: float | None = None
+    estimated_avg_weight_g: float | None = None
+    completed_at: datetime | None = None
+    last_completed_video: str | None = None
+    stream_url: str | None = None
+
+
+class DemoStartRequest(_View):
+    """Body of POST /api/demo/start."""
+
+    video: str
+

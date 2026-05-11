@@ -111,3 +111,58 @@ export interface LiveEventView {
   at: string;
   payload: Record<string, unknown>;
 }
+
+// ── Phase 2 — camera-source / type browser ─────────────────────────────────
+
+export type CameraSourceType =
+  | "rtsp"
+  | "http"
+  | "usb"
+  | "csi"
+  | "gstreamer"
+  | "file"
+  | "unknown";
+
+export interface CameraSourceView {
+  camera_id: string;
+  source_uri: string;
+  source_type: CameraSourceType;
+  source_type_label: string;
+  role?: string | null;
+  shed_id?: string | null;
+  zone_id?: string | null;
+  flock_id?: string | null;
+  running: boolean;
+  has_frames: boolean;
+  viewer_count_hint: number;
+  stream_url?: string | null;
+}
+
+// ── Phase 3 — demo subsystem ───────────────────────────────────────────────
+
+export interface DemoVideoView {
+  name: string;
+  path: string;
+  size_bytes: number;
+  duration_seconds?: number | null;
+  fps?: number | null;
+  width?: number | null;
+  height?: number | null;
+  frame_count?: number | null;
+}
+
+export interface DemoStatusView {
+  running: boolean;
+  video?: string | null;
+  camera_id?: string | null;
+  started_at?: string | null;
+  elapsed_seconds?: number | null;
+  duration_seconds?: number | null;
+  frame_count?: number | null;
+  bird_count?: number | null;
+  huddling_score?: number | null;
+  estimated_avg_weight_g?: number | null;
+  completed_at?: string | null;
+  last_completed_video?: string | null;
+  stream_url?: string | null;
+}

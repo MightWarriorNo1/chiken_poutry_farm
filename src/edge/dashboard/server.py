@@ -34,19 +34,26 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from edge.config import DashboardSettings
+from edge.dashboard.camera_sources import classify_source, type_label
+from edge.dashboard.demo import DemoManager
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.read_model import ReadModel
 from edge.dashboard.stream_registry import StreamRegistry
 from edge.dashboard.views import (
     AlertView,
     CameraSeriesView,
+    CameraSourceView,
     CameraView,
+    DemoStartRequest,
+    DemoStatusView,
+    DemoVideoView,
     LiveEventView,
     ManualWeightView,
     SensorSeriesView,
     SensorView,
     StatusView,
 )
+from edge.supervisors.camera_supervisor import CameraSupervisor
 
 log = structlog.get_logger(__name__)
 
@@ -68,6 +75,8 @@ def create_app(
     threshold_provider: ThresholdProvider = _no_thresholds,
     static_dir: Path | None = None,
     stream_registry: StreamRegistry | None = None,
+    camera_supervisor: CameraSupervisor | None = None,
+    demo_manager: DemoManager | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to a specific ReadModel + EventBus."""
 
@@ -79,6 +88,7 @@ def create_app(
             port=settings.port,
             static_dir=str(static_dir) if static_dir else None,
             streams=bool(stream_registry),
+            demo=bool(demo_manager),
         )
         yield
         log.info("dashboard.app.shutdown")
@@ -97,18 +107,22 @@ def create_app(
     app.state.settings = settings
     app.state.threshold_provider = threshold_provider
     app.state.stream_registry = stream_registry
+    app.state.camera_supervisor = camera_supervisor
+    app.state.demo_manager = demo_manager
 
     if settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
             allow_credentials=False,
-            allow_methods=["GET"],
+            allow_methods=["GET", "POST"],
             allow_headers=["*"],
         )
 
     app.include_router(_build_api_router(), prefix="/api")
     app.include_router(_build_stream_router(), prefix="/api")
+    app.include_router(_build_sources_router(), prefix="/api")
+    app.include_router(_build_demo_router(), prefix="/api")
     app.include_router(_build_live_router())
 
     _mount_static(app, static_dir)
@@ -240,6 +254,98 @@ def _build_stream_router() -> APIRouter:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    return r
+
+
+# ── Camera sources / type browser (Phase 2) ────────────────────────────────
+
+
+def _build_sources_router() -> APIRouter:
+    """`/api/cameras/sources` — every configured camera with its source-type
+    classification and connection status.
+
+    Powered by the CameraSupervisor (which sees both cloud config and demo
+    extras) decorated with FrameBroadcaster signals.
+    """
+    r = APIRouter()
+
+    @r.get("/cameras/sources", response_model=list[CameraSourceView])
+    async def sources(request: Request) -> list[CameraSourceView]:
+        sup: CameraSupervisor | None = request.app.state.camera_supervisor
+        registry: StreamRegistry | None = request.app.state.stream_registry
+        if sup is None:
+            return []
+
+        running = set(sup.running_cameras)
+        out: list[CameraSourceView] = []
+        for cfg in sup.cameras_with_config():
+            cam_id = cfg["camera_id"]
+            uri = str(cfg.get("source_uri", ""))
+            kind = classify_source(uri)
+            bcast = registry.get(cam_id) if registry is not None else None
+            has_frames = bool(bcast and bcast.latest is not None)
+            viewers = 1 if (bcast and bcast.has_subscribers) else 0
+            out.append(
+                CameraSourceView(
+                    camera_id=cam_id,
+                    source_uri=uri,
+                    source_type=kind,
+                    source_type_label=type_label(kind),
+                    role=cfg.get("role"),
+                    shed_id=cfg.get("shed_id"),
+                    zone_id=cfg.get("zone_id"),
+                    flock_id=cfg.get("flock_id"),
+                    running=cam_id in running,
+                    has_frames=has_frames,
+                    viewer_count_hint=viewers,
+                    stream_url=f"/api/cameras/{cam_id}/stream" if has_frames else None,
+                )
+            )
+        return out
+
+    return r
+
+
+# ── Demo subsystem (Phase 3) ────────────────────────────────────────────────
+
+
+def _build_demo_router() -> APIRouter:
+    """`/api/demo/...` — list videos, start/stop, query status."""
+    r = APIRouter()
+
+    def _require_manager(request: Request) -> DemoManager:
+        mgr: DemoManager | None = request.app.state.demo_manager
+        if mgr is None:
+            raise HTTPException(status_code=503, detail="Demo subsystem not configured")
+        return mgr
+
+    @r.get("/demo/videos", response_model=list[DemoVideoView])
+    async def list_videos(request: Request) -> list[DemoVideoView]:
+        mgr = _require_manager(request)
+        return await mgr.list_videos()
+
+    @r.get("/demo/status", response_model=DemoStatusView)
+    async def status(request: Request) -> DemoStatusView:
+        mgr = _require_manager(request)
+        return await mgr.status()
+
+    @r.post("/demo/start", response_model=DemoStatusView)
+    async def start(body: DemoStartRequest, request: Request) -> DemoStatusView:
+        mgr = _require_manager(request)
+        try:
+            return await mgr.start(body.video)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @r.post("/demo/stop", response_model=DemoStatusView)
+    async def stop(request: Request) -> DemoStatusView:
+        mgr = _require_manager(request)
+        return await mgr.stop()
 
     return r
 
