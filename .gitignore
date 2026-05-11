@@ -36,6 +36,8 @@ Thumbs.db
 *.log
 data/
 runs/                    # ultralytics training outputs
+yolov8n.pt               # ultralytics download cache (project root)
+yolov8n.onnx
 models/**/*.onnx         # model binaries — store via Git LFS or external registry
 models/**/*.pt
 !models/**/metadata.json

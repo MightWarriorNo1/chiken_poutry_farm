@@ -24,8 +24,10 @@ sensors: []   # simulator is wired in main.py until MQTT broker is configured
 ai:
   frame_interval_seconds: 2.0
   models:
+    # Default to the stub so demos run with zero setup.
+    # After `python scripts/download_yolov8n.py`, change to "1.0.0" to use real YOLO.
     - name: bird-detector
-      version: stub-0.0.1   # swap to a real version once exported to models/
+      version: stub-0.0.1
 
 sync:
   heartbeat_interval_seconds: 30

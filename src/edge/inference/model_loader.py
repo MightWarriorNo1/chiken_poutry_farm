@@ -1,57 +1,102 @@
-"""Versioned local model registry.
+"""Versioned AI model registry.
 
-Models live under `models/<name>/<version>/` with a `metadata.json` describing the
-runtime contract (input shape, classes, etc.). The loader does not touch the network;
-remote model rollout happens by syncing files into `models/` then bumping config.
+A `ModelDescriptor` is a pointer + metadata; loading the actual ONNX session is
+the adapter's responsibility (lazy, expensive). This separation lets the
+ConfigPipeline hand a descriptor to the InferenceSupervisor without paying for
+inference setup until the descriptor is selected.
+
+Filesystem layout (see [models/README.md](../../../models/README.md)):
+
+    models/
+      <name>/
+        <version>/
+          model.onnx
+          metadata.json
+          eval.md
+        latest -> <version>     (optional symlink)
+
+`stub-*` versions are virtual — no disk artifact required. Used by the
+StubBirdDetector for offline demos.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
 class ModelDescriptor:
     name: str
     version: str
-    artifact_path: Path
-    metadata: dict[str, object]
+    artifact_path: Path | None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def reference(self) -> str:
-        """Stable, human-readable identifier for events: e.g. `bird-detector@1.0.0`."""
+        """Canonical `<name>@<version>` — used as `model_version` on every event."""
         return f"{self.name}@{self.version}"
+
+    @property
+    def is_stub(self) -> bool:
+        return self.artifact_path is None or self.version.startswith("stub")
 
 
 class ModelLoader:
-    """Resolves `<name>` (latest symlink) or `<name>@<version>` to disk paths."""
+    """Resolves `<root>/<name>/<version>/` into a ModelDescriptor."""
 
-    def __init__(self, root: Path = Path("models")) -> None:
-        self._root = root
+    def __init__(self, models_root: Path) -> None:
+        self._root = Path(models_root)
 
-    def load(self, name: str, version: str | None = None) -> ModelDescriptor:
-        target = self._root / name / (version or "latest")
-        if not target.exists():
-            raise FileNotFoundError(f"Model not found: {name}@{version or 'latest'} ({target})")
+    def load(self, name: str, version: str) -> ModelDescriptor:
+        # Stub versions are virtual — no disk artifact required.
+        if version.startswith("stub"):
+            return ModelDescriptor(
+                name=name,
+                version=version,
+                artifact_path=None,
+                metadata={"name": name, "version": version, "framework": "stub"},
+            )
 
-        # `latest` is a symlink — resolve it for stable version tracking.
-        resolved = target.resolve()
-        meta_path = resolved / "metadata.json"
-        metadata: dict[str, object] = {}
-        if meta_path.exists():
-            with meta_path.open("r", encoding="utf-8") as f:
-                metadata = json.load(f)
+        version_dir = self._root / name / version
+        if not version_dir.is_dir():
+            raise FileNotFoundError(
+                f"Model directory not found: {version_dir}. "
+                f"Run scripts/download_yolov8n.py to bootstrap, or check models/{name}/."
+            )
 
-        actual_version = version or resolved.name
-        artifact = next(
-            (resolved / fname for fname in ("model.onnx", "model.pt") if (resolved / fname).exists()),
-            resolved,
-        )
+        metadata_path = version_dir / "metadata.json"
+        if not metadata_path.is_file():
+            raise FileNotFoundError(f"Missing metadata.json in {version_dir}")
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        artifact_name = metadata.get("artifact", "model.onnx")
+        artifact_path = version_dir / artifact_name
+        if not artifact_path.is_file():
+            raise FileNotFoundError(f"Missing artifact: {artifact_path}")
+
         return ModelDescriptor(
             name=name,
-            version=actual_version,
-            artifact_path=artifact,
+            version=version,
+            artifact_path=artifact_path,
             metadata=metadata,
         )
+
+    def latest(self, name: str) -> ModelDescriptor:
+        """Resolve `<root>/<name>/latest`, or fall back to the lexically-highest version."""
+        link = self._root / name / "latest"
+        if link.exists():
+            return self.load(name, link.resolve().name)
+
+        name_root = self._root / name
+        if not name_root.is_dir():
+            raise FileNotFoundError(f"No versions for model: {name}")
+        candidates = sorted(
+            (p.name for p in name_root.iterdir() if p.is_dir() and p.name != "latest"),
+            reverse=True,
+        )
+        if not candidates:
+            raise FileNotFoundError(f"No versions for model: {name}")
+        return self.load(name, candidates[0])
