@@ -25,7 +25,7 @@ from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
 from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
-from edge.inference.model_loader import ModelLoader
+from edge.inference.models.stub_detector import StubBirdDetector
 from edge.outbox.sqlite_outbox import SqliteOutbox
 from edge.pipelines.config_pipeline import ConfigPipeline
 from edge.pipelines.frame_pipeline import FramePipeline
@@ -34,7 +34,6 @@ from edge.pipelines.sensor_pipeline import SensorPipeline
 from edge.pipelines.sync_pipeline import SyncPipeline
 from edge.sensors.simulator import SimulatedSensorReader
 from edge.supervisors.camera_supervisor import CameraSupervisor
-from edge.supervisors.inference_supervisor import InferenceSupervisor
 from edge.sync.http_sync import HttpCloudSync
 from edge.telemetry import configure as configure_telemetry
 
@@ -54,9 +53,8 @@ async def amain(settings: Settings) -> None:
     cloud = HttpCloudSync(settings.cloud)
     await cloud.start()
 
-    # ── Inference: supervisor reconciles model versions against EdgeConfig.ai.models.
-    # Acts as a BirdDetector facade — FramePipeline doesn't care which detector is loaded.
-    inference = InferenceSupervisor(model_loader=ModelLoader())
+    # ── Inference (stub until Sprint 2) ─────────────────────────────────────
+    bird_detector = StubBirdDetector(seed=None)
 
     # ── Sensors: simulator by default; swap to MQTT once a broker is configured ──
     sensor_reader = SimulatedSensorReader(device_id=settings.device_id)
@@ -94,7 +92,7 @@ async def amain(settings: Settings) -> None:
                 return FramePipeline(
                     device_id=settings.device_id,
                     source=source,
-                    bird_detector=inference,  # facade — swaps detector under us
+                    bird_detector=bird_detector,
                     outbox=outbox,
                     shed_id=cam_cfg.get("shed_id"),
                     flock_id=cam_cfg.get("flock_id"),
@@ -104,7 +102,6 @@ async def amain(settings: Settings) -> None:
             config_pipe = ConfigPipeline(
                 source=config_source,
                 camera_supervisor=camera_sup,
-                inference_supervisor=inference,
                 poll_interval_seconds=settings.cadence.config_poll_interval_seconds,
             )
 
