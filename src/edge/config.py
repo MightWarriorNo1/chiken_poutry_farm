@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     device_name: str = "Dev Device"
     software_version: str = "0.1.0"
 
+    # When set, use the on-disk file as the EdgeConfig source instead of polling the cloud.
+    # Useful for offline dev/demos. See `example.config.yaml`.
+    static_config_path: Path | None = None
+
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     mqtt: MqttSettings = Field(default_factory=MqttSettings)

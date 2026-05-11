@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import structlog
 
-from edge.capture.source import FrameSource
+from edge.capture.source import Frame, FrameSource
 from edge.domain.events import EventEnvelope, EventType
 from edge.inference.inference import BirdDetector, HuddlingDetector, WeightEstimator
 from edge.outbox.outbox import Outbox
@@ -52,7 +52,7 @@ class FramePipeline:
         finally:
             await self._source.close()
 
-    async def _process_one(self, frame) -> None:  # noqa: ANN001
+    async def _process_one(self, frame: Frame) -> None:
         detection = await self._bird.detect(frame)
         # Stamp device_id (the detector is device-agnostic by design).
         detection_filled = detection.model_copy(

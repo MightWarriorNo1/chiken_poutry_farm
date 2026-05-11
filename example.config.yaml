@@ -1,0 +1,33 @@
+# Offline-dev EdgeConfig — bypasses cloud polling when EDGE_STATIC_CONFIG_PATH points here.
+#
+# Usage:
+#   1. Generate demo frames:   python scripts/make_demo_frames.py --out ./demo/frames --count 10
+#   2. Run the edge:           $env:EDGE_STATIC_CONFIG_PATH = "./example.config.yaml"; prosper-edge
+#
+# The structure mirrors the `EdgeConfig` schema in contracts/openapi.yaml so it stays
+# wire-compatible with the cloud-issued version.
+
+schema_version: "0.1.0"
+device_id: edge-dev-001
+issued_at: "2026-05-11T00:00:00Z"
+
+cameras:
+  - camera_id: cam-demo-1
+    source_uri: "file://./demo/frames"   # also accepts an MP4 path
+    role: general
+    shed_id: shed-1
+    zone_id: zone-A
+    flock_id: flock-A
+
+sensors: []   # simulator is wired in main.py until MQTT broker is configured
+
+ai:
+  frame_interval_seconds: 2.0
+  models:
+    - name: bird-detector
+      version: stub-0.0.1   # swap to a real version once exported to models/
+
+sync:
+  heartbeat_interval_seconds: 30
+  batch_size: 50
+  flush_interval_seconds: 5

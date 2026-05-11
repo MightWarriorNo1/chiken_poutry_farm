@@ -16,13 +16,26 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[ai,sensors,dev]"
 
-# 2. Run with simulated sensors and a sample video file
+# 2. Generate sample frames + point edge at the offline config
+python scripts/make_demo_frames.py --out ./demo/frames --count 20
 copy .env.example .env
-docker compose -f docker/docker-compose.dev.yml up -d   # mosquitto + sensor sim
+$env:EDGE_STATIC_CONFIG_PATH = "./example.config.yaml"
+
+# 3. Spin up a cloud mock against the contract, then run the edge
+docker run --rm -p 4010:4010 -v ${PWD}/contracts:/tmp stoplight/prism:5 `
+    mock -h 0.0.0.0 /tmp/openapi.yaml
+# in another shell:
+$env:EDGE_CLOUD__BASE_URL = "http://localhost:4010"
 prosper-edge
 ```
 
-You should see structured logs of frames being processed, sensor readings flowing, and HTTP POSTs going to the cloud base URL. Point `EDGE_CLOUD_BASE_URL` at a mock server (e.g. [Prism](https://stoplight.io/open-source/prism) running against [`contracts/openapi.yaml`](contracts/openapi.yaml)) until the real API is online.
+You should see structured logs of:
+- the YAML config loading and a camera spinning up
+- frames being processed (stub detector emits realistic BirdDetections)
+- sensor readings flowing (simulator)
+- HTTP POSTs to the mock cloud
+
+To switch to **cloud-driven config**, just unset `EDGE_STATIC_CONFIG_PATH` and point `EDGE_CLOUD__BASE_URL` at the real API.
 
 ---
 

@@ -50,3 +50,6 @@ outbox.db-shm
 tests/fixtures/sample_streams/*.mp4
 tests/fixtures/sample_streams/*.mov
 !tests/fixtures/sample_streams/.gitkeep
+
+# ── Generated demo artifacts ──
+/demo/

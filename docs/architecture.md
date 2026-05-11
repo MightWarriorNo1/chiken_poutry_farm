@@ -39,11 +39,13 @@ adapters depend on ports + domain; domain depends on nothing.
 | Module | Role | Port? |
 |---|---|---|
 | [domain/](../src/edge/domain/) | Pure dataclasses; mirror wire contracts. | — |
-| [capture/](../src/edge/capture/) | Frame source (RTSP, file, future GStreamer). | `FrameSource` |
+| [capture/](../src/edge/capture/) | Frame source (RTSP, file, future GStreamer). Factory dispatches by URI scheme. | `FrameSource` |
 | [inference/](../src/edge/inference/) | AI models for bird/weight/huddling. | `BirdDetector`, `WeightEstimator`, `HuddlingDetector` |
 | [sensors/](../src/edge/sensors/) | IoT sensor reader (MQTT, simulator, Modbus). | `SensorReader` |
 | [outbox/](../src/edge/outbox/) | Durable FIFO queue (SQLite). | `Outbox` |
 | [sync/](../src/edge/sync/) | Cloud transport (HTTP, future gRPC). | `CloudSync` |
+| [config_sources/](../src/edge/config_sources/) | Where the `EdgeConfig` comes from (cloud poll, YAML file). | `EdgeConfigSource` |
+| [supervisors/](../src/edge/supervisors/) | Reconcilers: desired-vs-actual state for fleets of pipelines. | — |
 | [pipelines/](../src/edge/pipelines/) | Long-running coroutines that compose the above. | — |
 
 ## Concurrency model
@@ -53,14 +55,33 @@ adapters depend on ports + domain; domain depends on nothing.
 - Sync I/O (OpenCV, paho callbacks) is bridged via `anyio.to_thread.run_sync`.
 - The outbox is the only shared state; it's transactional via SQLite WAL.
 
+## Configuration & camera lifecycle
+
+The set of running cameras is **driven by configuration, not hard-coded**.
+
+```
+EdgeConfigSource  ─►  ConfigPipeline  ─►  CameraSupervisor.apply(desired_cameras)
+   (cloud or yaml)        (every N seconds)        │
+                                                   ├─ stop cameras absent from desired
+                                                   ├─ restart cameras whose config changed
+                                                   └─ start cameras newly present
+                                                          │
+                                                          ▼
+                                                   FramePipeline per camera
+```
+
+This makes the edge **reactive**: change cameras in the cloud config (or the local
+YAML file) and the running pipelines reshape themselves at the next poll without a
+restart. It's also what enables fleet management once a real cloud is in place.
+
 ## Data flow (frame example)
 
 ```
-RtspFrameSource ─► FramePipeline ─► YoloBirdDetector ─► outbox.put(BirdDetection)
-                                  ↘
-                                    HeuristicWeightEstimator ─► outbox.put(WeightEstimate)
-                                  ↘
-                                    DbscanHuddlingDetector ─► outbox.put(HuddlingScore)
+FrameSource ─► FramePipeline ─► BirdDetector       ─► outbox.put(BirdDetection)
+            (per-camera)     ↘
+                              WeightEstimator      ─► outbox.put(WeightEstimate)
+                            ↘
+                              HuddlingDetector     ─► outbox.put(HuddlingScore)
 
 SyncPipeline (loop, every 5s)
   for each EventType:
