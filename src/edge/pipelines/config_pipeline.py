@@ -60,5 +60,5 @@ class ConfigPipeline:
             "config.applied",
             cameras=len(cameras),
             sensors=len(sensors),
-            bird_model=self._inference.current_version if self._inference else None,
+            inference_models=self._inference.versions() if self._inference else None,
         )

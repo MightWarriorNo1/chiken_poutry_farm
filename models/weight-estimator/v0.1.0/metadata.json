@@ -1,0 +1,15 @@
+{
+  "name": "weight-estimator",
+  "version": "0.1.0",
+  "framework": "heuristic-lookup",
+  "format": "json",
+  "default_breed": "ross_308",
+  "baseline_confidence": 0.4,
+  "growth_curves": {
+    "ross_308": [[1, 42], [7, 180], [14, 480], [21, 980], [28, 1620], [35, 2350], [42, 3050]],
+    "cobb_500": [[1, 42], [7, 175], [14, 460], [21, 950], [28, 1580], [35, 2300], [42, 3000]],
+    "hubbard_classic": [[1, 41], [7, 170], [14, 450], [21, 920], [28, 1540], [35, 2240], [42, 2920]]
+  },
+  "notes": "Calibration baseline. Linear interpolation between (age_days, weight_g) points. Replace with regression CV model in v1.0.0 once ~1000 manual samples are paired with detections.",
+  "exported_at": "2026-05-11T00:00:00Z"
+}

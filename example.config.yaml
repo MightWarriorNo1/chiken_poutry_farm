@@ -18,6 +18,8 @@ cameras:
     shed_id: shed-1
     zone_id: zone-A
     flock_id: flock-A
+    flock_age_days: 28           # used by weight-estimator heuristic
+    breed: ross_308              # used by weight-estimator heuristic
 
 sensors:
   # Simulator-protocol sensors run entirely inside the edge process — no broker
@@ -53,10 +55,13 @@ sensors:
 ai:
   frame_interval_seconds: 2.0
   models:
-    # Default to the stub so demos run with zero setup.
-    # After `python scripts/download_yolov8n.py`, change to "1.0.0" to use real YOLO.
+    # Default to stubs so demos run with zero setup.
+    # After `python scripts/download_yolov8n.py`, change to "1.0.0" for real YOLO.
     - name: bird-detector
       version: stub-0.0.1
+    # Heuristic weight estimator works out of the box (no artifact required).
+    - name: weight-estimator
+      version: "0.1.0"
 
 sync:
   heartbeat_interval_seconds: 30

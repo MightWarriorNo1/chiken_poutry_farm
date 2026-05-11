@@ -40,7 +40,7 @@ adapters depend on ports + domain; domain depends on nothing.
 |---|---|---|
 | [domain/](../src/edge/domain/) | Pure dataclasses; mirror wire contracts. | — |
 | [capture/](../src/edge/capture/) | Frame source (RTSP, file, future GStreamer). Factory dispatches by URI scheme. | `FrameSource` |
-| [inference/](../src/edge/inference/) | AI models for bird/weight/huddling. | `BirdDetector`, `WeightEstimator`, `HuddlingDetector` |
+| [inference/](../src/edge/inference/) | AI models for bird/weight/huddling. Each model gets a `Registry` + `Proxied*` facade; one `InferenceSupervisor` dispatches by model name. | `BirdDetector`, `WeightEstimator`, `HuddlingDetector` |
 | [sensors/](../src/edge/sensors/) | IoT sensor reader (MQTT, simulator, Modbus). | `SensorReader` |
 | [outbox/](../src/edge/outbox/) | Durable FIFO queue (SQLite). | `Outbox` |
 | [sync/](../src/edge/sync/) | Cloud transport (HTTP, future gRPC). | `CloudSync` |

@@ -22,13 +22,14 @@ from edge.domain.events import EventEnvelope, EventType
 
 log = structlog.get_logger(__name__)
 
-# event_type -> (path suffix, payload key)
+# event_type -> path suffix under settings.ingest_path
 _INGEST_ROUTES: dict[EventType, str] = {
     EventType.BIRD_DETECTION: "/detections",
     EventType.WEIGHT_ESTIMATE: "/weight-estimates",
     EventType.HUDDLING_SCORE: "/huddling-scores",
     EventType.SENSOR_READING: "/sensor-readings",
     EventType.DEVICE_HEARTBEAT: "/heartbeat",
+    EventType.MANUAL_WEIGHT_SAMPLE: "/manual-weights",
 }
 
 

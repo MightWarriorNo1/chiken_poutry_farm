@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prosper.example.com/schemas/manual_weight_sample.schema.json",
+  "title": "ManualWeightSample",
+  "description": "A manually-weighed bird-sample submitted by farm staff. Used for AI calibration and dashboard ground-truth comparison.",
+  "type": "object",
+  "required": [
+    "event_id", "device_id", "flock_id", "sampled_at",
+    "sample_count", "average_weight_g"
+  ],
+  "properties": {
+    "event_id":         { "type": "string", "format": "uuid" },
+    "device_id":        { "type": "string", "minLength": 1 },
+    "flock_id":         { "type": "string", "minLength": 1 },
+    "shed_id":          { "type": "string" },
+    "sampled_at":       { "type": "string", "format": "date-time" },
+    "flock_age_days":   { "type": "integer", "minimum": 0 },
+    "sample_count":     { "type": "integer", "minimum": 1 },
+    "average_weight_g": { "type": "number",  "minimum": 0 },
+    "min_weight_g":     { "type": "number",  "minimum": 0 },
+    "max_weight_g":     { "type": "number",  "minimum": 0 },
+    "notes":            { "type": "string" },
+    "operator":         { "type": "string" }
+  },
+  "additionalProperties": false
+}

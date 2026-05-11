@@ -28,6 +28,8 @@ class FramePipeline:
         huddling_detector: HuddlingDetector | None = None,
         flock_id: str | None = None,
         shed_id: str | None = None,
+        flock_age_days: int | None = None,
+        breed: str | None = None,
     ) -> None:
         self._device_id = device_id
         self._source = source
@@ -37,6 +39,8 @@ class FramePipeline:
         self._huddling = huddling_detector
         self._flock_id = flock_id
         self._shed_id = shed_id
+        self._flock_age_days = flock_age_days
+        self._breed = breed
 
     async def run(self) -> None:
         await self._source.open()
@@ -70,7 +74,12 @@ class FramePipeline:
         )
 
         if self._weight is not None:
-            estimate = await self._weight.estimate(frame, detection_filled)
+            estimate = await self._weight.estimate(
+                frame,
+                detection_filled,
+                bird_age_days=self._flock_age_days,
+                breed=self._breed,
+            )
             await self._outbox.put(
                 EventEnvelope(
                     event_type=EventType.WEIGHT_ESTIMATE,

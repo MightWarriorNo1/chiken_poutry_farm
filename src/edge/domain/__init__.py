@@ -3,6 +3,7 @@
 from edge.domain.detection import BirdDetection, HuddlingScore, WeightEstimate
 from edge.domain.device import CameraStatus, DeviceHeartbeat, SensorStatus
 from edge.domain.events import EdgeEvent, EventEnvelope, EventType
+from edge.domain.manual_weight import ManualWeightSample
 from edge.domain.reading import SensorReading, SensorType
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "EventEnvelope",
     "EventType",
     "HuddlingScore",
+    "ManualWeightSample",
     "SensorReading",
     "SensorStatus",
     "SensorType",

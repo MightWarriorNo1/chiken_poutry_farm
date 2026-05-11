@@ -26,9 +26,12 @@ from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
 from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
+from edge.inference.factory import build_bird_detector, build_weight_estimator
 from edge.inference.model_loader import ModelLoader
 from edge.inference.models.stub_detector import StubBirdDetector
+from edge.inference.models.stub_weight_estimator import StubWeightEstimator
 from edge.inference.proxied_detector import DetectorRegistry, ProxiedBirdDetector
+from edge.inference.proxied_estimator import EstimatorRegistry, ProxiedWeightEstimator
 from edge.outbox.sqlite_outbox import SqliteOutbox
 from edge.pipelines.config_pipeline import ConfigPipeline
 from edge.pipelines.frame_pipeline import FramePipeline
@@ -37,7 +40,7 @@ from edge.pipelines.sensor_pipeline import SensorPipeline
 from edge.pipelines.sync_pipeline import SyncPipeline
 from edge.sensors.factory import build_sensor_reader
 from edge.supervisors.camera_supervisor import CameraSupervisor
-from edge.supervisors.inference_supervisor import InferenceSupervisor
+from edge.supervisors.inference_supervisor import InferenceSupervisor, ModelHandler
 from edge.supervisors.sensor_supervisor import SensorSupervisor
 from edge.sync.http_sync import HttpCloudSync
 from edge.telemetry import configure as configure_telemetry
@@ -58,11 +61,25 @@ async def amain(settings: Settings) -> None:
     cloud = HttpCloudSync(settings.cloud)
     await cloud.start()
 
-    # ── Inference: stub on boot, hot-swappable from EdgeConfig.ai.models ────
+    # ── Inference: stub on boot, hot-swappable per model name from EdgeConfig.ai.models ──
     detector_registry = DetectorRegistry(initial=StubBirdDetector(seed=None))
     proxied_detector = ProxiedBirdDetector(detector_registry)
+    estimator_registry = EstimatorRegistry(initial=StubWeightEstimator())
+    proxied_estimator = ProxiedWeightEstimator(estimator_registry)
     model_loader = ModelLoader(models_root=Path("./models"))
-    inference_sup = InferenceSupervisor(detector_registry, model_loader)
+    inference_sup = InferenceSupervisor(
+        loader=model_loader,
+        handlers={
+            "bird-detector": ModelHandler(
+                build=build_bird_detector,
+                install=detector_registry.swap,
+            ),
+            "weight-estimator": ModelHandler(
+                build=build_weight_estimator,
+                install=estimator_registry.swap,
+            ),
+        },
+    )
 
     # Sensors are now config-driven via SensorSupervisor (built inside the task group).
     heartbeat_pipe = HeartbeatPipeline(
@@ -98,9 +115,12 @@ async def amain(settings: Settings) -> None:
                     device_id=settings.device_id,
                     source=source,
                     bird_detector=proxied_detector,
+                    weight_estimator=proxied_estimator,
                     outbox=outbox,
                     shed_id=cam_cfg.get("shed_id"),
                     flock_id=cam_cfg.get("flock_id"),
+                    flock_age_days=cam_cfg.get("flock_age_days"),
+                    breed=cam_cfg.get("breed"),
                 )
 
             def make_sensor_pipeline(

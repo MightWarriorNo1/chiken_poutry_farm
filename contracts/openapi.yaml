@@ -81,6 +81,26 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/ingest/manual-weights:
+    post:
+      tags: [ingest]
+      operationId: ingestManualWeightSamples
+      summary: Submit manually-weighed bird samples for ground-truth comparison.
+      description: |
+        Sent from the edge after farm staff weighs a sample of birds (typically
+        via the device CLI or a future mobile app). Cloud uses these to chart
+        AI-vs-manual variance and (later) to assemble training/eval datasets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualWeightSampleBatch"
+      responses:
+        "202": { $ref: "#/components/responses/Accepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /v1/ingest/sensor-readings:
     post:
       tags: [ingest]
@@ -321,6 +341,37 @@ components:
           maximum: 1
           description: Fraction of detected birds in the largest cluster.
         snapshot_uri:    { type: string, format: uri }
+
+    # ── Manual weight sample batch + item ─────────────────────────────────
+    ManualWeightSampleBatch:
+      type: object
+      required: [schema_version, events]
+      properties:
+        schema_version: { type: string }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/ManualWeightSample" }
+
+    ManualWeightSample:
+      type: object
+      required:
+        [event_id, device_id, flock_id, sampled_at,
+         sample_count, average_weight_g]
+      properties:
+        event_id:         { type: string, format: uuid }
+        device_id:        { type: string }
+        flock_id:         { type: string }
+        shed_id:          { type: string }
+        sampled_at:       { type: string, format: date-time }
+        flock_age_days:   { type: integer, minimum: 0 }
+        sample_count:     { type: integer, minimum: 1 }
+        average_weight_g: { type: number,  minimum: 0 }
+        min_weight_g:     { type: number,  minimum: 0 }
+        max_weight_g:     { type: number,  minimum: 0 }
+        notes:            { type: string }
+        operator:         { type: string }
 
     # ── Sensor reading batch + item ────────────────────────────────────────
     SensorReadingBatch:

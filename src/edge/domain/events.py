@@ -22,6 +22,7 @@ class EventType(StrEnum):
     HUDDLING_SCORE = "huddling_score"
     SENSOR_READING = "sensor_reading"
     DEVICE_HEARTBEAT = "device_heartbeat"
+    MANUAL_WEIGHT_SAMPLE = "manual_weight_sample"
 
 
 class EventEnvelope(BaseModel):
