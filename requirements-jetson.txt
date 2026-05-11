@@ -5,17 +5,18 @@
 # (not 3.11 from deadsnakes) — that keeps GStreamer + NVMM-enabled OpenCV
 # available "for free" via --system-site-packages.
 #
-# Sources of Jetson-specific wheels (in order of preference):
-#   1. https://pypi.jetson-ai-lab.dev/      ← maintained pip index, what we use
-#   2. https://elinux.org/Jetson_Zoo         ← community wiki, lags behind for JP 6.1+
-#   3. Build from source                     ← last resort, hours on Orin Nano
+# ── Inference backend status ───────────────────────────────────────────────
 #
-# The Jetson AI Lab index segments wheels by (JetPack-major × CUDA-version):
-#     /jp6/cu122/   →  JetPack 6.0           (CUDA 12.2)
-#     /jp6/cu126/   →  JetPack 6.1 and 6.2   (CUDA 12.6)
-#     /jp5/cu114/   →  JetPack 5.x           (legacy)
+# This file pins the PoC to **CPU onnxruntime** because, as of writing, there
+# is no reliable public pip index for Jetson aarch64 `onnxruntime-gpu` wheels
+# matching JetPack 6.2 + CUDA 12.6. The historical options are listed below
+# under "Getting GPU acceleration later" — none is a clean one-line install.
 #
-# Confirm the CUDA version on your device with `nvidia-smi` before installing.
+# CPU is plenty for the PoC at `frame_interval_seconds >= 1.0`: YOLOv8n@640
+# runs at ~5–10 fps on Orin Nano's A78 cluster, and the pipeline only asks
+# for one frame every 2 s. The runtime knows nothing about which EP is
+# available — it just calls onnxruntime, so swapping to GPU later is a wheel
+# change, not a code change.
 #
 # ── Usage ──────────────────────────────────────────────────────────────────
 #
@@ -28,44 +29,45 @@
 #   # 2. Install the project + extras (do NOT include [ai] — its CPU
 #   #    onnxruntime + headless OpenCV wheels are the things we are overriding).
 #   pip install -e ".[sensors,dashboard]"
-#   pip install scikit-learn>=1.5    # the only [ai] dep we still want from PyPI
+#   pip install scikit-learn>=1.5
 #
 #   # 3. Drop anything that may have leaked in from a prior install attempt.
 #   pip uninstall -y onnxruntime opencv-python opencv-python-headless ultralytics || true
 #
-#   # 4. Apply the Jetson-specific pins. The --extra-index-url tells pip to
-#   #    look at the Jetson AI Lab index in ADDITION to PyPI — pip picks the
-#   #    Jetson aarch64 wheel for onnxruntime-gpu and falls back to PyPI for
-#   #    everything else.
+#   # 4. Apply the Jetson-specific pins.
 #   pip install -r requirements-jetson.txt
 #
-#   # 5. Smoke test — both should print without error.
+#   # 5. Smoke test.
 #   python -c "import cv2; print('cv2', cv2.__version__, '| GStreamer:', 'GSTREAMER' in cv2.getBuildInformation())"
-#   python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+#   python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
 #   # Expect:
 #   #   cv2 4.8.0 | GStreamer: True
-#   #   ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+#   #   1.x.x ['CPUExecutionProvider']           ← CPU-only for PoC
 #
-# ── Notes ──────────────────────────────────────────────────────────────────
-# - `ultralytics` is intentionally NOT reinstalled. It's only needed for
-#   training and the one-shot YOLOv8n→ONNX export — do those on a dev box.
-# - If you later upgrade JetPack across CUDA majors (e.g. 6.0 → 6.1 switches
-#   CUDA 12.2 → 12.6), change the --extra-index-url path and re-install the
-#   wheel — CUDA ABI changes between minor releases would otherwise surface
-#   as a silent CPU fallback or an import-time load failure.
+# ── Getting GPU acceleration later (any of these are fine, none is trivial) ─
+#
+#   a) NVIDIA forum / developer downloads: search the NVIDIA Developer Forum
+#      for "onnxruntime-gpu jetpack 6.2 python 3.10 wheel". Dustin Franklin
+#      (dusty-nv) and NVIDIA staff periodically post fresh nvidia.box.com
+#      links there. Treat each link as having a finite lifetime.
+#
+#   b) jetson-containers (github.com/dusty-nv/jetson-containers) ships a
+#      `packages/ml/onnxruntime/` build recipe that produces a wheel from
+#      source for any (JetPack, Python) combination. Build takes 30–60 min
+#      on Orin Nano. Output wheel can be `pip install`'d.
+#
+#   c) Skip onnxruntime-gpu entirely — export the YOLO model to a TensorRT
+#      engine with `trtexec` and write a thin TRT-Python inference adapter.
+#      Best perf, most work. Worth it for production, overkill for PoC.
+#
+# Once you have a working aarch64 wheel locally:
+#   pip install /path/to/onnxruntime_gpu-*-cp310-cp310-linux_aarch64.whl
+# Then re-run the smoke test in step 5 — providers list should grow to:
+#   ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
 
-# ── Extra index for Jetson-built wheels ────────────────────────────────────
-# Change cu126 → cu122 if you are on JetPack 6.0.
---extra-index-url https://pypi.jetson-ai-lab.dev/jp6/cu126
-
-# ── ONNX Runtime — Jetson GPU build (CUDA + TensorRT execution providers) ──
-# Leave the version unpinned: the Jetson AI Lab index serves the latest cp310
-# wheel for the (jp6, cu126) channel, currently ORT 1.20.x. If you want to
-# pin, check what `pip index versions onnxruntime-gpu` returns first.
-onnxruntime-gpu
+# ── ONNX Runtime — CPU build from PyPI (provides aarch64 wheels) ───────────
+onnxruntime>=1.18
 
 # ── Everything else the runtime needs that wasn't already pulled in ────────
-# Pinned loosely so a future `pip install -U` doesn't silently re-introduce
-# CPU onnxruntime as a transitive dep.
-numpy>=1.26,<2.0          # Jetson PyPI builds of numpy 2.x can be flaky; stay on 1.x
-scikit-learn>=1.5          # DBSCAN for huddling detector
+numpy>=1.26,<2.0          # Jetson PyPI numpy 2.x can be flaky; stay on 1.x
+scikit-learn>=1.5         # DBSCAN for huddling detector
