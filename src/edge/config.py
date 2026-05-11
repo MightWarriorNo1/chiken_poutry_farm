@@ -36,6 +36,13 @@ class MqttSettings(BaseModel):
     topic_prefix: str = "prosper/sensors"
 
 
+class ModbusSettings(BaseModel):
+    enabled: bool = False
+    host: str = "localhost"
+    port: int = 502
+    poll_interval_seconds: float = 5.0
+
+
 class CadenceSettings(BaseModel):
     frame_interval_seconds: float = 2.0
     heartbeat_interval_seconds: int = 30
@@ -73,6 +80,7 @@ class Settings(BaseSettings):
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     mqtt: MqttSettings = Field(default_factory=MqttSettings)
+    modbus: ModbusSettings = Field(default_factory=ModbusSettings)
     cadence: CadenceSettings = Field(default_factory=CadenceSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
 

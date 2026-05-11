@@ -1,16 +1,29 @@
-# Local development stack: edge runtime + MQTT broker + Prism mock for cloud API.
-# Usage:  docker compose -f docker/docker-compose.dev.yml up
+# Local dev stack — MQTT broker + cloud-API mock (+ optional edge container).
+#
+#   docker compose -f docker/docker-compose.dev.yml up -d mosquitto cloud-mock
+#   python scripts/mqtt_sensor_publisher.py    # synthesize sensor traffic
+#   prosper-edge                                # run the edge from your venv
+#
+# Or to run everything in containers:
+#   docker compose -f docker/docker-compose.dev.yml up
 
 services:
   mosquitto:
-    image: eclipse-mosquitto:2.0
+    image: eclipse-mosquitto:2
     container_name: prosper-mosquitto
     ports:
-      - "1883:1883"
+      - "1883:1883"        # MQTT
+      - "9001:9001"        # MQTT-over-WebSocket (handy for browser tools)
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-h", "localhost", "-t", "$$SYS/#", "-C", "1", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
+  # Cloud-API mock that answers every endpoint in contracts/openapi.yaml.
   cloud-mock:
     image: stoplight/prism:5
     container_name: prosper-cloud-mock
@@ -19,20 +32,28 @@ services:
       - "4010:4010"
     volumes:
       - ../contracts:/tmp:ro
+    restart: unless-stopped
 
+  # Edge container. Optional — most devs run `prosper-edge` from a local venv
+  # for fast iteration. Bring this up only when you want a fully containerized
+  # smoke test:  docker compose ... up edge
   edge:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     container_name: prosper-edge
-    depends_on: [mosquitto, cloud-mock]
+    profiles: [full]                 # excluded by default; opt in via --profile full
+    depends_on:
+      mosquitto: { condition: service_healthy }
+      cloud-mock: { condition: service_started }
     environment:
       EDGE_DEVICE_ID: edge-dev-001
       EDGE_CLOUD__BASE_URL: http://cloud-mock:4010
       EDGE_MQTT__HOST: mosquitto
-      EDGE_MQTT__ENABLED: "false"   # flip to true once sensor sim publishes to MQTT
       EDGE_LOG_FORMAT: console
+      EDGE_STATIC_CONFIG_PATH: /app/example.config.yaml
     volumes:
+      - ../example.config.yaml:/app/example.config.yaml:ro
       - ../models:/app/models:ro
       - edge-state:/app/state
     restart: unless-stopped

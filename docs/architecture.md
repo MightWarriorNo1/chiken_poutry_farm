@@ -55,20 +55,28 @@ adapters depend on ports + domain; domain depends on nothing.
 - Sync I/O (OpenCV, paho callbacks) is bridged via `anyio.to_thread.run_sync`.
 - The outbox is the only shared state; it's transactional via SQLite WAL.
 
-## Configuration & camera lifecycle
+## Configuration & runtime topology
 
-The set of running cameras is **driven by configuration, not hard-coded**.
+Everything that runs on the edge — cameras, AI models, sensor readers — is
+**driven by `EdgeConfig`, not hard-coded**. `ConfigPipeline` polls the source
+on a schedule and fans the latest snapshot into three supervisors:
 
 ```
-EdgeConfigSource  ─►  ConfigPipeline  ─►  CameraSupervisor.apply(desired_cameras)
-   (cloud or yaml)        (every N seconds)        │
-                                                   ├─ stop cameras absent from desired
-                                                   ├─ restart cameras whose config changed
-                                                   └─ start cameras newly present
-                                                          │
-                                                          ▼
-                                                   FramePipeline per camera
+EdgeConfigSource  ─►  ConfigPipeline ─┬─►  InferenceSupervisor ─► swap detector if needed
+   (cloud or yaml)        (every N s)  │
+                                       ├─►  SensorSupervisor    ─► one pipeline per protocol
+                                       │                              (mqtt | modbus | simulator)
+                                       │
+                                       └─►  CameraSupervisor    ─► one FramePipeline per camera
 ```
+
+Each supervisor's `apply()` is idempotent and per-resource:
+- `CameraSupervisor` keys on `camera_id`. Adds/removes/restarts FramePipelines.
+- `SensorSupervisor` keys on `source.protocol`. Adds/removes/restarts per-protocol pipelines.
+- `InferenceSupervisor` keys on the model version. Hot-swaps detectors behind a proxy.
+
+This makes the edge **reactive**: change cameras, sensors, or the active model in
+config and the running graph reshapes itself at the next poll without a restart.
 
 This makes the edge **reactive**: change cameras in the cloud config (or the local
 YAML file) and the running pipelines reshape themselves at the next poll without a

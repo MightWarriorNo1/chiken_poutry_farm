@@ -15,6 +15,7 @@ import structlog
 from edge.config_sources.source import EdgeConfigSource
 from edge.supervisors.camera_supervisor import CameraSupervisor
 from edge.supervisors.inference_supervisor import InferenceSupervisor
+from edge.supervisors.sensor_supervisor import SensorSupervisor
 
 log = structlog.get_logger(__name__)
 
@@ -25,11 +26,13 @@ class ConfigPipeline:
         source: EdgeConfigSource,
         camera_supervisor: CameraSupervisor,
         inference_supervisor: InferenceSupervisor | None = None,
+        sensor_supervisor: SensorSupervisor | None = None,
         poll_interval_seconds: int = 300,
     ) -> None:
         self._source = source
         self._cameras = camera_supervisor
         self._inference = inference_supervisor
+        self._sensors = sensor_supervisor
         self._poll_interval = poll_interval_seconds
 
     async def run(self) -> None:
@@ -47,10 +50,15 @@ class ConfigPipeline:
         if self._inference is not None:
             await self._inference.apply(config.get("ai") or {})
 
+        sensors = config.get("sensors") or []
+        if self._sensors is not None:
+            await self._sensors.apply(sensors)
+
         cameras = config.get("cameras") or []
         await self._cameras.apply(cameras)
         log.info(
             "config.applied",
             cameras=len(cameras),
+            sensors=len(sensors),
             bird_model=self._inference.current_version if self._inference else None,
         )

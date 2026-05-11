@@ -19,7 +19,36 @@ cameras:
     zone_id: zone-A
     flock_id: flock-A
 
-sensors: []   # simulator is wired in main.py until MQTT broker is configured
+sensors:
+  # Simulator-protocol sensors run entirely inside the edge process — no broker
+  # required. Use these for the zero-dependency demo.
+  - sensor_id: sim-temp-1
+    sensor_type: temperature
+    shed_id: shed-1
+    zone_id: zone-A
+    source: { protocol: simulator }
+  - sensor_id: sim-hum-1
+    sensor_type: humidity
+    shed_id: shed-1
+    zone_id: zone-A
+    source: { protocol: simulator }
+  - sensor_id: sim-nh3-1
+    sensor_type: ammonia
+    shed_id: shed-1
+    zone_id: zone-A
+    source: { protocol: simulator }
+
+  # MQTT-protocol sensors are picked up by the MqttSensorReader. Spin up the
+  # broker (docker-compose.dev.yml) + scripts/mqtt_sensor_publisher.py to feed
+  # these. The unit field is authoritative — publishers can't override it.
+  # Uncomment to enable:
+  # - sensor_id: mqtt-temp-1
+  #   sensor_type: temperature
+  #   unit: celsius
+  #   shed_id: shed-1
+  #   source:
+  #     protocol: mqtt
+  #     topic: prosper/sensors/shed-1/temp-1
 
 ai:
   frame_interval_seconds: 2.0

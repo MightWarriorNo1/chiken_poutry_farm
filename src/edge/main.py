@@ -35,9 +35,10 @@ from edge.pipelines.frame_pipeline import FramePipeline
 from edge.pipelines.heartbeat_pipeline import HeartbeatPipeline
 from edge.pipelines.sensor_pipeline import SensorPipeline
 from edge.pipelines.sync_pipeline import SyncPipeline
-from edge.sensors.simulator import SimulatedSensorReader
+from edge.sensors.factory import build_sensor_reader
 from edge.supervisors.camera_supervisor import CameraSupervisor
 from edge.supervisors.inference_supervisor import InferenceSupervisor
+from edge.supervisors.sensor_supervisor import SensorSupervisor
 from edge.sync.http_sync import HttpCloudSync
 from edge.telemetry import configure as configure_telemetry
 
@@ -63,10 +64,7 @@ async def amain(settings: Settings) -> None:
     model_loader = ModelLoader(models_root=Path("./models"))
     inference_sup = InferenceSupervisor(detector_registry, model_loader)
 
-    # ── Sensors: simulator by default; swap to MQTT once a broker is configured ──
-    sensor_reader = SimulatedSensorReader(device_id=settings.device_id)
-
-    sensor_pipe = SensorPipeline(reader=sensor_reader, outbox=outbox)
+    # Sensors are now config-driven via SensorSupervisor (built inside the task group).
     heartbeat_pipe = HeartbeatPipeline(
         device_id=settings.device_id,
         software_version=settings.software_version,
@@ -105,15 +103,28 @@ async def amain(settings: Settings) -> None:
                     flock_id=cam_cfg.get("flock_id"),
                 )
 
+            def make_sensor_pipeline(
+                protocol: str, sensor_cfgs: list[dict[str, Any]]
+            ) -> SensorPipeline:
+                reader = build_sensor_reader(
+                    protocol,
+                    sensor_cfgs,
+                    device_id=settings.device_id,
+                    mqtt=settings.mqtt,
+                    modbus=settings.modbus,
+                )
+                return SensorPipeline(reader=reader, outbox=outbox)
+
             camera_sup = CameraSupervisor(task_group=tg, factory=make_frame_pipeline)
+            sensor_sup = SensorSupervisor(task_group=tg, factory=make_sensor_pipeline)
             config_pipe = ConfigPipeline(
                 source=config_source,
                 camera_supervisor=camera_sup,
                 inference_supervisor=inference_sup,
+                sensor_supervisor=sensor_sup,
                 poll_interval_seconds=settings.cadence.config_poll_interval_seconds,
             )
 
-            tg.start_soon(sensor_pipe.run)
             tg.start_soon(heartbeat_pipe.run)
             tg.start_soon(sync_pipe.run)
             tg.start_soon(config_pipe.run)

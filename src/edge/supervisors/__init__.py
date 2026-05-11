@@ -2,5 +2,6 @@
 
 from edge.supervisors.camera_supervisor import CameraSupervisor
 from edge.supervisors.inference_supervisor import InferenceSupervisor
+from edge.supervisors.sensor_supervisor import SensorSupervisor
 
-__all__ = ["CameraSupervisor", "InferenceSupervisor"]
+__all__ = ["CameraSupervisor", "InferenceSupervisor", "SensorSupervisor"]

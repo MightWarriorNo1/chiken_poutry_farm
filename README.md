@@ -21,10 +21,14 @@ python scripts/make_demo_frames.py --out ./demo/frames --count 20
 copy .env.example .env
 $env:EDGE_STATIC_CONFIG_PATH = "./example.config.yaml"
 
-# 3. Spin up a cloud mock against the contract, then run the edge
-docker run --rm -p 4010:4010 -v ${PWD}/contracts:/tmp stoplight/prism:5 `
-    mock -h 0.0.0.0 /tmp/openapi.yaml
-# in another shell:
+# 3. Spin up the dev stack (Mosquitto + Prism cloud-mock)
+docker compose -f docker/docker-compose.dev.yml up -d
+
+# 4. (Optional) feed real MQTT traffic — only needed if you uncomment the
+#    mqtt-protocol sensors in example.config.yaml
+python scripts/mqtt_sensor_publisher.py --config example.config.yaml --interval 2
+
+# 5. Run the edge
 $env:EDGE_CLOUD__BASE_URL = "http://localhost:4010"
 prosper-edge
 ```
