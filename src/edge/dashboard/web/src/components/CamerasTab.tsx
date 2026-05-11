@@ -1,13 +1,17 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Camera, Video } from "lucide-react";
+import { Camera, PlayCircle, Video } from "lucide-react";
+import { useState } from "react";
 
 import { api } from "../api";
 import { fmtInt, fmtNumber, fmtPct, relativeTime } from "../format";
 import type { CameraView } from "../types";
 import { Empty } from "./Empty";
+import { LiveView } from "./LiveView";
 import { Sparkline } from "./Sparkline";
 
 export function CamerasTab() {
+  const [liveCameraId, setLiveCameraId] = useState<string | null>(null);
+
   const cameras = useQuery({
     queryKey: ["cameras"],
     queryFn: api.cameras,
@@ -38,15 +42,24 @@ export function CamerasTab() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {cameras.data.map((cam, i) => (
-        <CameraCard
-          key={cam.camera_id}
-          cam={cam}
-          series={seriesQueries[i]?.data}
+    <>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {cameras.data.map((cam, i) => (
+          <CameraCard
+            key={cam.camera_id}
+            cam={cam}
+            series={seriesQueries[i]?.data}
+            onLive={() => setLiveCameraId(cam.camera_id)}
+          />
+        ))}
+      </div>
+      {liveCameraId && (
+        <LiveView
+          cameraId={liveCameraId}
+          onClose={() => setLiveCameraId(null)}
         />
-      ))}
-    </div>
+      )}
+    </>
   );
 }
 
@@ -58,9 +71,10 @@ interface CardProps {
         huddling: { t: string; values: Record<string, number> }[];
       }
     | undefined;
+  onLive: () => void;
 }
 
-function CameraCard({ cam, series }: CardProps) {
+function CameraCard({ cam, series, onLive }: CardProps) {
   const huddleHigh = (cam.huddling_score ?? 0) > 0.7;
 
   return (
@@ -77,10 +91,21 @@ function CameraCard({ cam, series }: CardProps) {
             {cam.flock_id && <span>flock {cam.flock_id}</span>}
           </div>
         </div>
-        <div className="text-right text-xs text-slate-500 tabular-nums">
-          <div>last frame</div>
-          <div className="text-slate-300">
-            {relativeTime(cam.last_frame_at)}
+        <div className="flex flex-col items-end gap-2 text-xs text-slate-500 tabular-nums">
+          <button
+            type="button"
+            onClick={onLive}
+            className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-300 hover:bg-sky-500/20"
+            title="Open live MJPEG stream"
+          >
+            <PlayCircle className="h-3.5 w-3.5" />
+            Live
+          </button>
+          <div className="text-right">
+            <div>last frame</div>
+            <div className="text-slate-300">
+              {relativeTime(cam.last_frame_at)}
+            </div>
           </div>
         </div>
       </div>

@@ -29,13 +29,14 @@ import anyio
 import structlog
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from edge.config import DashboardSettings
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.read_model import ReadModel
+from edge.dashboard.stream_registry import StreamRegistry
 from edge.dashboard.views import (
     AlertView,
     CameraSeriesView,
@@ -66,6 +67,7 @@ def create_app(
     settings: DashboardSettings,
     threshold_provider: ThresholdProvider = _no_thresholds,
     static_dir: Path | None = None,
+    stream_registry: StreamRegistry | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to a specific ReadModel + EventBus."""
 
@@ -76,6 +78,7 @@ def create_app(
             host=settings.host,
             port=settings.port,
             static_dir=str(static_dir) if static_dir else None,
+            streams=bool(stream_registry),
         )
         yield
         log.info("dashboard.app.shutdown")
@@ -93,6 +96,7 @@ def create_app(
     app.state.event_bus = event_bus
     app.state.settings = settings
     app.state.threshold_provider = threshold_provider
+    app.state.stream_registry = stream_registry
 
     if settings.cors_origins:
         app.add_middleware(
@@ -104,6 +108,7 @@ def create_app(
         )
 
     app.include_router(_build_api_router(), prefix="/api")
+    app.include_router(_build_stream_router(), prefix="/api")
     app.include_router(_build_live_router())
 
     _mount_static(app, static_dir)
@@ -177,6 +182,64 @@ def _build_api_router() -> APIRouter:
     ) -> list[ManualWeightView]:
         rm: ReadModel = request.app.state.read_model
         return await rm.list_manual_weights(limit)
+
+    return r
+
+
+# ── MJPEG camera stream ─────────────────────────────────────────────────────
+
+
+_MJPEG_BOUNDARY = "frame"
+
+
+def _mjpeg_part(jpeg: bytes) -> bytes:
+    """One multipart/x-mixed-replace chunk for an MJPEG response."""
+    return (
+        f"--{_MJPEG_BOUNDARY}\r\n"
+        f"Content-Type: image/jpeg\r\n"
+        f"Content-Length: {len(jpeg)}\r\n\r\n"
+    ).encode("ascii") + jpeg + b"\r\n"
+
+
+def _build_stream_router() -> APIRouter:
+    """`/api/cameras/{camera_id}/stream` — MJPEG of the annotated live feed.
+
+    The frame source feeds the broadcaster; this endpoint just relays whatever
+    JPEGs the broadcaster hands us. Pure I/O — no AI, no decode.
+    """
+    r = APIRouter()
+
+    @r.get("/cameras/{camera_id}/stream", include_in_schema=False)
+    async def stream(camera_id: str, request: Request) -> StreamingResponse:
+        registry: StreamRegistry | None = request.app.state.stream_registry
+        if registry is None:
+            raise HTTPException(
+                status_code=503, detail="Live streaming not configured on this device"
+            )
+        broadcaster = registry.get(camera_id)
+        if broadcaster is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No live stream available for camera_id={camera_id!r}",
+            )
+
+        async def gen() -> AsyncIterator[bytes]:
+            async with broadcaster.subscribe() as recv:
+                async for jpeg in recv:
+                    if await request.is_disconnected():
+                        return
+                    yield _mjpeg_part(jpeg)
+
+        return StreamingResponse(
+            gen(),
+            media_type=f"multipart/x-mixed-replace; boundary={_MJPEG_BOUNDARY}",
+            headers={
+                # Browser + any intermediate proxy: don't cache, don't buffer.
+                "Cache-Control": "no-cache, private",
+                "Pragma": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return r
 

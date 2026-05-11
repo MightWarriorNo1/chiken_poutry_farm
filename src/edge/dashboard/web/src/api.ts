@@ -23,6 +23,9 @@ export const api = {
     getJSON<CameraSeriesView>(
       `/api/cameras/${encodeURIComponent(cameraId)}/series?limit=${limit}`,
     ),
+  /** MJPEG live-stream URL — drop this into an <img src=...> tag. */
+  cameraStreamUrl: (cameraId: string) =>
+    `/api/cameras/${encodeURIComponent(cameraId)}/stream`,
   sensors: () => getJSON<SensorView[]>("/api/sensors"),
   sensorSeries: (sensorId: string, limit = 100) =>
     getJSON<SensorSeriesView>(

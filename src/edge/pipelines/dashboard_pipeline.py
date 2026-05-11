@@ -25,6 +25,7 @@ from edge.dashboard.server import (
     ThresholdProvider,
     create_app,
 )
+from edge.dashboard.stream_registry import StreamRegistry
 
 log = structlog.get_logger(__name__)
 
@@ -38,12 +39,14 @@ class DashboardPipeline:
         settings: DashboardSettings,
         threshold_provider: ThresholdProvider,
         static_dir: Path | None,
+        stream_registry: StreamRegistry | None = None,
     ) -> None:
         self._read_model = read_model
         self._event_bus = event_bus
         self._settings = settings
         self._threshold_provider = threshold_provider
         self._static_dir = static_dir
+        self._stream_registry = stream_registry
 
     async def run(self) -> None:
         app = create_app(
@@ -52,6 +55,7 @@ class DashboardPipeline:
             settings=self._settings,
             threshold_provider=self._threshold_provider,
             static_dir=self._static_dir,
+            stream_registry=self._stream_registry,
         )
 
         config = uvicorn.Config(

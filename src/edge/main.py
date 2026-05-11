@@ -38,6 +38,7 @@ from edge.dashboard.event_bus import EventBus
 from edge.dashboard.projecting_outbox import ProjectingOutbox
 from edge.dashboard.server import threshold_provider_from_supervisor
 from edge.dashboard.sqlite_read_model import SqliteReadModel
+from edge.dashboard.stream_registry import StreamRegistry
 from edge.inference.factory import (
     build_bird_detector,
     build_huddling_detector,
@@ -100,6 +101,9 @@ async def amain(settings: Settings) -> None:
     )
     await read_model.init()
     event_bus = EventBus(max_queue=128)
+    # Per-camera MJPEG broadcaster registry. Frame pipelines publish JPEGs;
+    # the dashboard server subscribes when a browser opens the live view.
+    stream_registry = StreamRegistry()
 
     # Outbox composition order matters: pipelines write through the OUTERMOST
     # wrapper. AlertingOutbox runs the alert engine; ProjectingOutbox tees into
@@ -168,6 +172,7 @@ async def amain(settings: Settings) -> None:
 
             def make_frame_pipeline(cam_cfg: dict[str, Any]) -> FramePipeline:
                 source = build_frame_source(cam_cfg, target_fps=target_fps)
+                broadcaster = stream_registry.get_or_create(cam_cfg["camera_id"])
                 return FramePipeline(
                     device_id=settings.device_id,
                     source=source,
@@ -179,6 +184,7 @@ async def amain(settings: Settings) -> None:
                     flock_id=cam_cfg.get("flock_id"),
                     flock_age_days=cam_cfg.get("flock_age_days"),
                     breed=cam_cfg.get("breed"),
+                    broadcaster=broadcaster,
                 )
 
             def make_sensor_pipeline(
@@ -220,6 +226,7 @@ async def amain(settings: Settings) -> None:
                     settings=settings.dashboard,
                     threshold_provider=threshold_provider_from_supervisor(sensor_sup),
                     static_dir=static_dir if static_dir.is_dir() else None,
+                    stream_registry=stream_registry,
                 )
                 tg.start_soon(dashboard_pipe.run)
 
