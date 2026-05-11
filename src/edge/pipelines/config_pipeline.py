@@ -1,8 +1,11 @@
-"""ConfigPipeline — polls a config source and feeds the camera supervisor.
+"""ConfigPipeline — polls a config source and fans changes out to supervisors.
 
-The pipeline is intentionally dumb: it ferries `cameras` from the latest config
-to the supervisor. (Sensors come from a different supervisor in Sprint 4; same
-pattern.) If `fetch()` returns None, the current state is preserved.
+Currently feeds `cameras` to CameraSupervisor and `ai` to InferenceSupervisor.
+SensorSupervisor lands in Sprint 4 with the same pattern. If `fetch()` returns
+None, the current state is preserved.
+
+AI config is applied *before* cameras so that when a new camera starts the
+matching detector is already in place.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ import structlog
 
 from edge.config_sources.source import EdgeConfigSource
 from edge.supervisors.camera_supervisor import CameraSupervisor
+from edge.supervisors.inference_supervisor import InferenceSupervisor
 
 log = structlog.get_logger(__name__)
 
@@ -21,10 +25,12 @@ class ConfigPipeline:
         self,
         source: EdgeConfigSource,
         camera_supervisor: CameraSupervisor,
+        inference_supervisor: InferenceSupervisor | None = None,
         poll_interval_seconds: int = 300,
     ) -> None:
         self._source = source
         self._cameras = camera_supervisor
+        self._inference = inference_supervisor
         self._poll_interval = poll_interval_seconds
 
     async def run(self) -> None:
@@ -38,6 +44,15 @@ class ConfigPipeline:
             await anyio.sleep(self._poll_interval)
 
     async def _apply(self, config: dict) -> None:
+        if self._inference is not None:
+            ai_cfg = config.get("ai") or {}
+            await self._inference.apply(ai_cfg)
+
         cameras = config.get("cameras") or []
         await self._cameras.apply(cameras)
-        log.info("config.applied", cameras=len(cameras))
+
+        log.info(
+            "config.applied",
+            cameras=len(cameras),
+            ai_active=self._inference.model_version if self._inference else None,
+        )
