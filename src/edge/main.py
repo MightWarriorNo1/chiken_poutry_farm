@@ -26,12 +26,18 @@ from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
 from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
-from edge.inference.factory import build_bird_detector, build_weight_estimator
+from edge.inference.factory import (
+    build_bird_detector,
+    build_huddling_detector,
+    build_weight_estimator,
+)
 from edge.inference.model_loader import ModelLoader
 from edge.inference.models.stub_detector import StubBirdDetector
+from edge.inference.models.stub_huddling import StubHuddlingDetector
 from edge.inference.models.stub_weight_estimator import StubWeightEstimator
 from edge.inference.proxied_detector import DetectorRegistry, ProxiedBirdDetector
 from edge.inference.proxied_estimator import EstimatorRegistry, ProxiedWeightEstimator
+from edge.inference.proxied_huddling import HuddlingRegistry, ProxiedHuddlingDetector
 from edge.outbox.sqlite_outbox import SqliteOutbox
 from edge.pipelines.config_pipeline import ConfigPipeline
 from edge.pipelines.frame_pipeline import FramePipeline
@@ -66,6 +72,8 @@ async def amain(settings: Settings) -> None:
     proxied_detector = ProxiedBirdDetector(detector_registry)
     estimator_registry = EstimatorRegistry(initial=StubWeightEstimator())
     proxied_estimator = ProxiedWeightEstimator(estimator_registry)
+    huddling_registry = HuddlingRegistry(initial=StubHuddlingDetector())
+    proxied_huddling = ProxiedHuddlingDetector(huddling_registry)
     model_loader = ModelLoader(models_root=Path("./models"))
     inference_sup = InferenceSupervisor(
         loader=model_loader,
@@ -77,6 +85,10 @@ async def amain(settings: Settings) -> None:
             "weight-estimator": ModelHandler(
                 build=build_weight_estimator,
                 install=estimator_registry.swap,
+            ),
+            "huddling-detector": ModelHandler(
+                build=build_huddling_detector,
+                install=huddling_registry.swap,
             ),
         },
     )
@@ -116,6 +128,7 @@ async def amain(settings: Settings) -> None:
                     source=source,
                     bird_detector=proxied_detector,
                     weight_estimator=proxied_estimator,
+                    huddling_detector=proxied_huddling,
                     outbox=outbox,
                     shed_id=cam_cfg.get("shed_id"),
                     flock_id=cam_cfg.get("flock_id"),

@@ -1,12 +1,12 @@
 """Factories: ModelDescriptor → typed inference adapter.
 
-One factory per port (BirdDetector, WeightEstimator, ...). Adding a new adapter
-is a one-branch change in the relevant factory.
+One factory per port (BirdDetector, WeightEstimator, HuddlingDetector, ...).
+Adding a new adapter is a one-branch change in the relevant factory.
 """
 
 from __future__ import annotations
 
-from edge.inference.inference import BirdDetector, WeightEstimator
+from edge.inference.inference import BirdDetector, HuddlingDetector, WeightEstimator
 from edge.inference.model_loader import ModelDescriptor
 
 
@@ -38,3 +38,17 @@ def build_weight_estimator(descriptor: ModelDescriptor) -> WeightEstimator:
     )
 
     return HeuristicWeightEstimator(descriptor)
+
+
+def build_huddling_detector(descriptor: ModelDescriptor) -> HuddlingDetector:
+    """Pick the right HuddlingDetector adapter based on descriptor type."""
+    if descriptor.is_stub:
+        from edge.inference.models.stub_huddling import StubHuddlingDetector  # noqa: PLC0415
+
+        return StubHuddlingDetector(model_version=descriptor.reference)
+
+    from edge.inference.models.huddling_detector import (  # noqa: PLC0415
+        DbscanHuddlingDetector,
+    )
+
+    return DbscanHuddlingDetector(descriptor)

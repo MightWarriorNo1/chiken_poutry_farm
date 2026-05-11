@@ -62,6 +62,9 @@ ai:
     # Heuristic weight estimator works out of the box (no artifact required).
     - name: weight-estimator
       version: "0.1.0"
+    # DBSCAN huddling detector — also config-only, no artifact required.
+    - name: huddling-detector
+      version: "0.1.0"
 
 sync:
   heartbeat_interval_seconds: 30

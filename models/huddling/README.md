@@ -1,4 +1,4 @@
-# huddling
+# huddling-detector
 
 Computes a clustering / huddling score over normalized bird centroids.
 
@@ -6,9 +6,31 @@ Computes a clustering / huddling score over normalized bird centroids.
 
 | Version | Status | Notes |
 |---|---|---|
-| _none yet_ | _Sprint 5_ | DBSCAN over centroids in normalized [0,1] image coords. Zone-aware via bbox split. |
+| `stub-0.0.1` | ✅ Always available | Emits constant 0.1 — for plumbing demos. |
+| [`0.1.0`](v0.1.0/) | ✅ Sprint 5 | DBSCAN over centroids. Tunable `eps`, `min_samples`, per-zone overrides. No model artifact required (params live in metadata.json). |
+| `1.0.0` | 🚧 Production | Temporal smoothing — rolling window over N frames to dedupe flapping alerts. |
 
-## Roadmap
+## Selecting the version
 
-1. **v1.0.0** — DBSCAN baseline. Tunable `eps`, `min_samples`. _Sprint 5_
-2. **v2.0.0** — temporal smoothing (huddling persistence over N frames). _Production_
+```yaml
+ai:
+  models:
+    - name: huddling-detector
+      version: "0.1.0"
+```
+
+The `InferenceSupervisor` hot-swaps behind the `ProxiedHuddlingDetector` at the
+next config poll — running camera pipelines keep going.
+
+## Tuning per camera
+
+If a camera has unusual framing, drop a `zone_overrides` block into
+[v0.1.0/metadata.json](v0.1.0/metadata.json):
+
+```json
+"zone_overrides": {
+  "zone-A": { "eps": 0.08, "min_samples": 6 }
+}
+```
+
+The detector picks the override when `detection.zone_id` matches.
