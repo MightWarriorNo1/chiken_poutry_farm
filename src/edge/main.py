@@ -34,6 +34,10 @@ from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
 from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
+from edge.dashboard.event_bus import EventBus
+from edge.dashboard.projecting_outbox import ProjectingOutbox
+from edge.dashboard.server import threshold_provider_from_supervisor
+from edge.dashboard.sqlite_read_model import SqliteReadModel
 from edge.inference.factory import (
     build_bird_detector,
     build_huddling_detector,
@@ -87,9 +91,25 @@ async def amain(settings: Settings) -> None:
     alert_engine = AlertEngine(outbox=inner_outbox, rules=alert_rules)
     alert_sup = AlertSupervisor(sensor_out_of_range=sensor_oor_rule)
 
-    # All pipelines write through the wrapper so the engine sees every event.
-    # The engine writes its own alerts to inner_outbox to avoid feedback.
-    outbox = AlertingOutbox(inner=inner_outbox, engine=alert_engine)
+    # ── Local dashboard: read model + event bus + outbox tee ───────────────
+    read_model = SqliteReadModel(
+        settings.storage.outbox_path,
+        series_size=settings.dashboard.series_size,
+        alerts_window=settings.dashboard.alerts_window,
+        manual_weights_window=settings.dashboard.manual_weights_window,
+    )
+    await read_model.init()
+    event_bus = EventBus(max_queue=128)
+
+    # Outbox composition order matters: pipelines write through the OUTERMOST
+    # wrapper. AlertingOutbox runs the alert engine; ProjectingOutbox tees into
+    # the read model + SSE bus. Both wrap the durable SqliteOutbox.
+    alerting = AlertingOutbox(inner=inner_outbox, engine=alert_engine)
+    outbox = ProjectingOutbox(
+        inner=alerting,
+        read_model=read_model,
+        event_bus=event_bus,
+    )
 
     # ── Inference: stub on boot, hot-swappable per model name from EdgeConfig.ai.models ──
     detector_registry = DetectorRegistry(initial=StubBirdDetector(seed=None))
@@ -188,19 +208,40 @@ async def amain(settings: Settings) -> None:
             tg.start_soon(sync_pipe.run)
             tg.start_soon(alert_engine.run)
             tg.start_soon(config_pipe.run)
+
+            if settings.dashboard.enabled:
+                # Import lazily so the `dashboard` extra isn't a hard dep.
+                from edge.pipelines.dashboard_pipeline import DashboardPipeline  # noqa: PLC0415
+
+                static_dir = Path(__file__).parent / "dashboard" / "web" / "dist"
+                dashboard_pipe = DashboardPipeline(
+                    read_model=read_model,
+                    event_bus=event_bus,
+                    settings=settings.dashboard,
+                    threshold_provider=threshold_provider_from_supervisor(sensor_sup),
+                    static_dir=static_dir if static_dir.is_dir() else None,
+                )
+                tg.start_soon(dashboard_pipe.run)
+
             tg.start_soon(_install_signal_handler, tg.cancel_scope)
     finally:
         await cloud.close()
+        await read_model.close()
         await inner_outbox.close()
         log.info("edge.stopped")
 
 
 async def _install_signal_handler(cancel_scope: anyio.CancelScope) -> None:
-    with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
-        async for sig in signals:
-            log.info("edge.signal", signal=sig)
-            cancel_scope.cancel()
-            return
+    try:
+        with anyio.open_signal_receiver(signal.SIGINT, signal.SIGTERM) as signals:
+            async for sig in signals:
+                log.info("edge.signal", signal=sig)
+                cancel_scope.cancel()
+                return
+    except NotImplementedError:
+        # Windows + asyncio doesn't support `add_signal_handler`. We rely on
+        # `KeyboardInterrupt` propagating up through `run()` instead.
+        log.info("edge.signal_receiver.unsupported", platform="windows")
 
 
 def run() -> None:

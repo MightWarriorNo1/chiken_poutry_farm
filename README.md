@@ -2,7 +2,7 @@
 
 On-shed AI inference and IoT ingestion runtime for the Prosper PoultryVision AI platform.
 
-This repo owns the **edge layer**: it captures camera frames, runs AI models for bird detection / weight estimation / huddling, ingests sensor readings, buffers everything in a local outbox, and forwards to the cloud API. The cloud API and web dashboard live in separate repos.
+This repo owns the **edge layer**: it captures camera frames, runs AI models for bird detection / weight estimation / huddling, ingests sensor readings, buffers everything in a local outbox, forwards to the cloud API, **and serves a local read-only dashboard on `127.0.0.1:8090` for in-shed visibility**. The customer-facing cloud dashboard lives in a separate repo.
 
 > **Status:** Sprint 0 scaffold. Contracts published; pipelines stubbed.
 
@@ -49,6 +49,8 @@ To switch to **cloud-driven config**, just unset `EDGE_STATIC_CONFIG_PATH` and p
 |---|---|
 | [contracts/](contracts/) | **Edge ↔ Cloud contract** — OpenAPI + JSON Schemas. The shared truth between this repo and the API team. |
 | [src/edge/](src/edge/) | EdgeBox runtime. Hexagonal: domain → ports → adapters → pipelines. |
+| [src/edge/dashboard/](src/edge/dashboard/) | On-device local dashboard — read-side projection + FastAPI + React UI. |
+| [src/edge/dashboard/web/](src/edge/dashboard/web/) | React + Vite + Tailwind + Recharts source. Build output: `web/dist/`. |
 | [models/](models/) | Versioned AI model artifacts (binaries via Git LFS or external registry). |
 | [scripts/](scripts/) | Training, ONNX export, benchmarking, contract validation. |
 | [tests/](tests/) | Unit + integration. AI-heavy tests are gated by the `ai` marker. |
@@ -60,6 +62,45 @@ To switch to **cloud-driven config**, just unset `EDGE_STATIC_CONFIG_PATH` and p
 - [Architecture overview](docs/architecture.md)
 - [Edge ↔ Cloud contract guide](docs/contract.md)
 - [ADR 0001 — Modular edge architecture](docs/adr/0001-modular-edge-architecture.md)
+- [ADR 0007 — On-device dashboard](docs/adr/0007-on-device-dashboard.md)
+
+## On-device dashboard
+
+A local read-only web UI runs alongside the pipelines so farm staff (and devs) can see what the edge is doing without the cloud being available.
+
+```powershell
+# 1. Install the dashboard extra (FastAPI + uvicorn + SSE)
+pip install -e ".[dashboard]"
+
+# 2. Build the React UI once
+cd src/edge/dashboard/web
+npm install
+npm run build
+cd ../../../..
+
+# 3. Run the edge — the dashboard is on by default
+prosper-edge
+# → http://127.0.0.1:8090
+```
+
+Toggle off with `EDGE_DASHBOARD__ENABLED=false`. Change the port with
+`EDGE_DASHBOARD__PORT=...`. See [.env.example](.env.example).
+
+**Tabs:**
+- **Overview** — flock-wide totals, latest temp/humidity, recent alerts
+- **Cameras** — per-camera bird count, density, huddling, weight + sparklines
+- **Sensors** — per-sensor value with threshold range badges + sparklines
+- **Alerts** — rolling window of alerts the edge has raised
+
+**Live updates:** the UI subscribes to `/events` (SSE) and invalidates React Query caches as events arrive. Slow clients have their oldest events dropped, never the publisher.
+
+**React dev loop** (hot reload against the running Python backend):
+```powershell
+cd src/edge/dashboard/web
+$env:EDGE_DASHBOARD__CORS_ORIGINS='["http://localhost:5173"]'
+npm run dev
+# → http://localhost:5173 (proxies /api + /events to 127.0.0.1:8090)
+```
 
 ## Development
 

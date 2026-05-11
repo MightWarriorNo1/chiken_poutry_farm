@@ -58,6 +58,23 @@ class TelemetrySettings(BaseModel):
     otel_otlp_endpoint: str = ""
 
 
+class DashboardSettings(BaseModel):
+    """On-device dashboard (local web UI). Toggle with EDGE_DASHBOARD__ENABLED."""
+
+    enabled: bool = True
+    host: str = "127.0.0.1"
+    port: int = 8090
+    # Sparkline length per camera/sensor; bigger = smoother chart, more disk.
+    series_size: int = 100
+    # Rolling window cap for the alerts feed.
+    alerts_window: int = 200
+    # Rolling window cap for the manual-weights feed.
+    manual_weights_window: int = 50
+    # CORS — only needed when running the React dev server (`npm run dev`)
+    # against the Python backend. Empty = no CORS headers emitted.
+    cors_origins: list[str] = Field(default_factory=list)
+
+
 class Settings(BaseSettings):
     """Root config. Env vars override; YAML overlay loaded explicitly via load_settings()."""
 
@@ -83,6 +100,7 @@ class Settings(BaseSettings):
     modbus: ModbusSettings = Field(default_factory=ModbusSettings)
     cadence: CadenceSettings = Field(default_factory=CadenceSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
+    dashboard: DashboardSettings = Field(default_factory=DashboardSettings)
 
 
 # Deep-merge helper for YAML overlay.

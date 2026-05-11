@@ -44,6 +44,26 @@ class SensorSupervisor:
     def running_protocols(self) -> list[str]:
         return list(self._running)
 
+    @property
+    def thresholds(self) -> dict[str, tuple[float | None, float | None]]:
+        """Current `{ sensor_id: (min, max) }` map from the last applied spec.
+
+        Consumed by the dashboard to decorate sensor cards with in/out-of-range
+        badges. Returns `(None, None)` for sensors without configured limits.
+        """
+        out: dict[str, tuple[float | None, float | None]] = {}
+        for group in self._running.values():
+            for s in group.sensors:
+                sid = s.get("sensor_id")
+                if not sid:
+                    continue
+                th = s.get("thresholds") or {}
+                out[str(sid)] = (
+                    _to_float_or_none(th.get("min")),
+                    _to_float_or_none(th.get("max")),
+                )
+        return out
+
     async def apply(self, desired_sensors: list[dict[str, Any]]) -> None:
         """Idempotent reconcile against the latest sensor list."""
         async with self._lock:
@@ -118,3 +138,12 @@ class SensorSupervisor:
                     and self._running[protocol].scope is scope
                 ):
                     self._running.pop(protocol, None)
+
+
+def _to_float_or_none(val: Any) -> float | None:
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None

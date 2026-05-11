@@ -47,6 +47,7 @@ adapters depend on ports + domain; domain depends on nothing.
 | [config_sources/](../src/edge/config_sources/) | Where the `EdgeConfig` comes from (cloud poll, YAML file). | `EdgeConfigSource` |
 | [supervisors/](../src/edge/supervisors/) | Reconcilers: desired-vs-actual state for fleets of pipelines. | — |
 | [alerts/](../src/edge/alerts/) | Rule-based alert engine; `AlertingOutbox` wraps the regular outbox so the engine sees every event. | `AlertRule` |
+| [dashboard/](../src/edge/dashboard/) | Local on-device read model + FastAPI + React UI on `127.0.0.1:8090`. `ProjectingOutbox` tees every event into SQLite `view_*` tables and an SSE bus. | `ReadModel` |
 | [pipelines/](../src/edge/pipelines/) | Long-running coroutines that compose the above. | — |
 
 ## Concurrency model
@@ -98,6 +99,26 @@ SyncPipeline (loop, every 5s)
     cloud.send_batch(type, events)   # HTTPS POST
     outbox.ack([e.event_id ...])
 ```
+
+## Outbox composition (write-side decorators)
+
+The pipelines see one `Outbox`, but each `put()` actually fans out three ways:
+
+```
+pipelines ──► ProjectingOutbox.put(e)
+                 │
+                 ├── inner.put(e)  ──► AlertingOutbox.put(e)
+                 │                       │
+                 │                       ├── inner.put(e) ──► SqliteOutbox (durable, drained by SyncPipeline)
+                 │                       └── AlertEngine.on_event(e)
+                 │
+                 ├── ReadModel.apply(e)         ──► SQLite view_* tables  ─◄── dashboard /api/*
+                 └── EventBus.publish(e)        ──► in-process pub/sub    ─◄── dashboard /events SSE
+```
+
+The durability contract belongs to the innermost `SqliteOutbox`; the decorators only add side-effects on the *outside* of a successful persist. Failures in alerting / projection / bus publish are logged and swallowed — they cannot break event delivery to the cloud.
+
+See [ADR 0007 — On-device dashboard](adr/0007-on-device-dashboard.md) for why the projection lives on the write path rather than reading from the outbox.
 
 ## Failure modes
 
