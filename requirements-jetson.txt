@@ -1,0 +1,59 @@
+# Jetson Orin NX overrides — JetPack 6.0/6.1 (L4T r36.3 / r36.4), Python 3.11.
+#
+# The project's `[ai]` extra in pyproject.toml installs the CPU `onnxruntime`
+# wheel from PyPI plus a PyPI build of `opencv-python-headless`. Neither uses
+# the Jetson GPU. This file overrides those choices for edge deployments.
+#
+# ── Usage ──────────────────────────────────────────────────────────────────
+#
+#   # 1. Create the venv WITH system-site-packages so JetPack's GStreamer-
+#   #    enabled OpenCV is visible inside it.
+#   python3.11 -m venv --system-site-packages .venv
+#   source .venv/bin/activate
+#   pip install --upgrade pip wheel
+#
+#   # 2. Install the project + extras (this still pulls CPU onnxruntime + the
+#   #    headless OpenCV wheel; we replace them next).
+#   pip install -e ".[sensors,dashboard]"
+#   pip install scikit-learn>=1.5    # the only [ai] dep we still want from PyPI
+#
+#   # 3. Drop the PyPI artifacts the [ai] extra would have installed.
+#   pip uninstall -y onnxruntime opencv-python-headless ultralytics || true
+#
+#   # 4. Apply the Jetson-specific pins.
+#   pip install -r requirements-jetson.txt
+#
+#   # 5. Smoke test — both should print without error.
+#   python -c "import cv2; print('cv2', cv2.__version__, '| GStreamer:', 'GSTREAMER' in cv2.getBuildInformation())"
+#   python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+#   # Expect:
+#   #   cv2 4.x.x | GStreamer: True
+#   #   ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+#
+# ── Notes ──────────────────────────────────────────────────────────────────
+# - `ultralytics` is intentionally NOT reinstalled. It's only needed for
+#   training and the one-shot YOLOv8n→ONNX export, neither of which runs on the
+#   edge box. Do those on a dev machine, then scp the ONNX over.
+# - The wheel URLs at nvidia.box.com rotate. Always cross-check against
+#   https://elinux.org/Jetson_Zoo#ONNX_Runtime before pinning a release tag.
+# - If you later upgrade JetPack (e.g. 6.0 → 6.1, which moves CUDA 12.2 → 12.6),
+#   the onnxruntime-gpu wheel MUST be re-pinned to match — CUDA ABI changes
+#   between minor releases will surface as a silent CPU fallback or a load
+#   failure at import time.
+
+# ── ONNX Runtime — Jetson GPU build (CUDA + TensorRT execution providers) ──
+#
+# Pick the URL that matches your device. Example for JetPack 6.0 + Py3.11 below
+# — verify against the Jetson Zoo page before you trust it.
+#
+# JetPack 6.0 (L4T r36.3, CUDA 12.2):
+onnxruntime-gpu @ https://nvidia.box.com/shared/static/REPLACE_WITH_JP60_PY311_WHEEL_URL.whl
+#
+# JetPack 6.1 (L4T r36.4, CUDA 12.6): uncomment the line below instead.
+# onnxruntime-gpu @ https://nvidia.box.com/shared/static/REPLACE_WITH_JP61_PY311_WHEEL_URL.whl
+
+# ── Everything else the runtime needs that wasn't already pulled in ────────
+# Pinned loosely so a future `pip install -U` doesn't silently re-introduce
+# CPU onnxruntime as a transitive dep.
+numpy>=1.26,<2.0          # Jetson PyPI builds of numpy 2.x can be flaky; stay on 1.x
+scikit-learn>=1.5          # DBSCAN for huddling detector
