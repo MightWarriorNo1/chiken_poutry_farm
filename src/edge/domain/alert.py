@@ -10,7 +10,7 @@ deduplicate / count them without each event having to be unique.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
+from edge._compat import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 

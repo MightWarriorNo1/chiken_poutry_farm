@@ -7,7 +7,7 @@ outbox before any network call so we never lose data on a crash or network blip.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import StrEnum
+from edge._compat import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
