@@ -223,3 +223,49 @@ class DemoStartRequest(_View):
 
     video: str
 
+
+# ── Sources / camera discovery (Phase 4) ────────────────────────────────────
+
+
+class DiscoveredDeviceView(_View):
+    """One auto-discovered camera. Fields populated per-type; missing = None."""
+
+    source_type: str                # usb | csi | rtsp | file
+    name: str
+    suggested_source_uri: str | None = None
+    # USB
+    device: str | None = None
+    # CSI
+    sensor_id: int | None = None
+    # RTSP / ONVIF
+    ip: str | None = None
+    xaddr: str | None = None
+    requires_auth: bool | None = None
+    # File
+    size_bytes: int | None = None
+    # Common probe data
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+
+
+class AdhocStartRequest(_View):
+    """Body of POST /api/cameras/adhoc/start."""
+
+    source_type: str
+    source_uri: str
+    label: str | None = None
+
+
+class AdhocStatusView(_View):
+    """Snapshot of the ad-hoc subsystem — one running camera at a time."""
+
+    running: bool
+    camera_id: str | None = None
+    source_type: str | None = None
+    source_uri: str | None = None
+    label: str | None = None
+    started_at: datetime | None = None
+    elapsed_seconds: float | None = None
+    stream_url: str | None = None
+

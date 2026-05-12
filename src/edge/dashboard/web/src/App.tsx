@@ -7,10 +7,17 @@ import { CamerasTab } from "./components/CamerasTab";
 import { DemoTab } from "./components/DemoTab";
 import { OverviewTab } from "./components/OverviewTab";
 import { SensorsTab } from "./components/SensorsTab";
+import { SourcesTab } from "./components/SourcesTab";
 import { StatusBar } from "./components/StatusBar";
 import { Tabs } from "./components/Tabs";
 
-type TabId = "overview" | "cameras" | "sensors" | "alerts" | "demo";
+type TabId =
+  | "overview"
+  | "cameras"
+  | "sources"
+  | "sensors"
+  | "alerts"
+  | "demo";
 
 export function App() {
   const [tab, setTab] = useState<TabId>("overview");
@@ -30,6 +37,11 @@ export function App() {
     queryFn: api.demoStatus,
     refetchInterval: 5_000,
   });
+  const adhocStatus = useQuery({
+    queryKey: ["adhoc", "status"],
+    queryFn: api.adhocStatus,
+    refetchInterval: 5_000,
+  });
 
   return (
     <div className="flex min-h-full flex-col">
@@ -41,6 +53,10 @@ export function App() {
             id: "cameras",
             label: "Cameras",
             count: status.data?.camera_count,
+          },
+          {
+            id: "sources",
+            label: adhocStatus.data?.running ? "Sources ●" : "Sources",
           },
           {
             id: "sensors",
@@ -63,6 +79,7 @@ export function App() {
       <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">
         {tab === "overview" && <OverviewTab />}
         {tab === "cameras" && <CamerasTab />}
+        {tab === "sources" && <SourcesTab />}
         {tab === "sensors" && <SensorsTab />}
         {tab === "alerts" && <AlertsTab />}
         {tab === "demo" && <DemoTab />}

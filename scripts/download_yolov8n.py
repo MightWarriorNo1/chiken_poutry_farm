@@ -33,6 +33,17 @@ def main() -> int:
     print("Downloading YOLOv8n COCO weights (~6 MB)...")
     model = YOLO("yolov8n.pt")
 
+    # Keep the .pt next to the .onnx so the Jetson GPU path (Ultralytics +
+    # torch.cuda) picks it up. The factory prefers .pt over .onnx when both
+    # exist and `ultralytics`+`torch` import.
+    pt_src = Path("yolov8n.pt")
+    pt_dst = TARGET_DIR / "model.pt"
+    if pt_src.is_file():
+        if pt_dst.exists():
+            pt_dst.unlink()
+        shutil.copy(pt_src, pt_dst)
+        print(f"✓ Checkpoint:    {pt_dst}")
+
     print(f"Exporting to ONNX → {TARGET_DIR}/model.onnx")
     onnx_path = Path(model.export(format="onnx", imgsz=640, simplify=True))
 
@@ -41,12 +52,16 @@ def main() -> int:
         artifact_dst.unlink()
     shutil.move(str(onnx_path), str(artifact_dst))
 
+    # Default to the .pt artifact so the Jetson Ultralytics + torch.cuda path
+    # auto-selects on the device (see inference/factory.py). The .onnx is kept
+    # as a sibling for the ONNX/TRT fallback paths; flip `artifact` if you ever
+    # want to force the ONNX route.
     metadata = {
         "name": "bird-detector",
         "version": "1.0.0",
         "framework": "ultralytics-yolov8n",
-        "format": "onnx",
-        "artifact": "model.onnx",
+        "format": "pytorch",
+        "artifact": "model.pt" if pt_dst.is_file() else "model.onnx",
         "input": {
             "shape": [1, 3, 640, 640],
             "dtype": "float32",
@@ -60,6 +75,8 @@ def main() -> int:
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "notes": (
             "Bootstrap: pretrained YOLOv8n COCO. Filters to class 14 (bird). "
+            "Both model.pt and model.onnx are produced; factory picks the .pt "
+            "path on Jetson (torch.cuda) and falls back to .onnx elsewhere. "
             "Replace with poultry-fine-tuned variant in v1.1.0+."
         ),
     }

@@ -1,73 +1,77 @@
-# Jetson Orin Nano / NX overrides — JetPack 6.x (L4T r36.3 / 36.4), Python 3.10.
+# Jetson Orin Nano / NX overrides — JetPack 6.x (L4T r36.x), Python 3.10.
 #
-# JetPack 6 ships Python 3.10.12 as the system interpreter and JetPack's
-# pre-built OpenCV bindings are linked against it, so we deliberately use 3.10
-# (not 3.11 from deadsnakes) — that keeps GStreamer + NVMM-enabled OpenCV
-# available "for free" via --system-site-packages.
+# JetPack 6 ships Python 3.10.12 + an OpenCV with GStreamer enabled (via
+# `nvidia-opencv`). We deliberately use the system python (not 3.11) so the
+# venv inherits that OpenCV through `--system-site-packages`.
 #
-# ── Inference backend status ───────────────────────────────────────────────
+# ── Inference backends ──────────────────────────────────────────────────────
 #
-# This file pins the PoC to **CPU onnxruntime** because, as of writing, there
-# is no reliable public pip index for Jetson aarch64 `onnxruntime-gpu` wheels
-# matching JetPack 6.2 + CUDA 12.6. The historical options are listed below
-# under "Getting GPU acceleration later" — none is a clean one-line install.
+# Two paths supported by the inference factory (auto-dispatched by artifact
+# extension):
 #
-# CPU is plenty for the PoC at `frame_interval_seconds >= 1.0`: YOLOv8n@640
-# runs at ~5–10 fps on Orin Nano's A78 cluster, and the pipeline only asks
-# for one frame every 2 s. The runtime knows nothing about which EP is
-# available — it just calls onnxruntime, so swapping to GPU later is a wheel
-# change, not a code change.
+#   • `.pt` checkpoint → `UltralyticsBirdDetector` → torch.cuda on the iGPU
+#                        (the production path on this Jetson).
+#   • `.onnx` artifact → `YoloBirdDetector` → ONNX Runtime, with
+#                        TensorRT/CUDA EPs when an ORT-GPU wheel is installed.
+#
+# For the PoC we pin to the `.pt` / ultralytics path. ORT here stays CPU; it
+# is only used if someone drops an `.onnx` into models/.
+#
+# ── One-time GPU setup (Jetson PyTorch + ultralytics) ──────────────────────
+#
+# NVIDIA hosts Jetson-built torch + torchvision wheels at
+#   https://developer.download.nvidia.com/compute/redist/jp/v62/pytorch/
+# These rotate; the exact filenames change between l4t patch releases. Open
+# that directory in a browser, copy the URLs that match `cp310` + your L4T,
+# then on the Jetson (with the venv active):
+#
+#   pip install <torch-2.x.x-cp310-cp310-linux_aarch64.whl URL>
+#   pip install <torchvision-0.x.x-cp310-cp310-linux_aarch64.whl URL>
+#
+# Verify CUDA is wired in before installing ultralytics — otherwise pip will
+# happily pull a PyPI torch wheel that has no CUDA:
+#
+#   python -c "import torch; print(torch.__version__, 'cuda?', torch.cuda.is_available())"
+#   # Expect: 2.x.x  cuda? True
+#
+# Then:
+#
+#   pip install -r requirements-jetson.txt    # picks up ultralytics + wsdiscovery
+#
+# Verify the YOLO path is hot:
+#
+#   python -c "from ultralytics import YOLO; import torch; \
+#              m=YOLO('models/bird-detector/v1.0.0/model.pt'); \
+#              print('device:', m.device, 'cuda:', torch.cuda.is_available())"
 #
 # ── Usage ──────────────────────────────────────────────────────────────────
 #
-#   # 1. Create the venv WITH system-site-packages so JetPack's GStreamer-
-#   #    enabled OpenCV is visible inside it. Use the system python3.10.
 #   python3.10 -m venv --system-site-packages .venv
 #   source .venv/bin/activate
 #   pip install --upgrade pip wheel
-#
-#   # 2. Install the project + extras (do NOT include [ai] — its CPU
-#   #    onnxruntime + headless OpenCV wheels are the things we are overriding).
 #   pip install -e ".[sensors,dashboard]"
-#   pip install scikit-learn>=1.5
-#
-#   # 3. Drop anything that may have leaked in from a prior install attempt.
-#   pip uninstall -y onnxruntime opencv-python opencv-python-headless ultralytics || true
-#
-#   # 4. Apply the Jetson-specific pins.
+#   pip install "scikit-learn>=1.5"
+#   pip uninstall -y onnxruntime opencv-python opencv-python-headless || true
+#   # ── Install Jetson torch + torchvision FIRST (see comment above) ──
 #   pip install -r requirements-jetson.txt
 #
-#   # 5. Smoke test.
-#   python -c "import cv2; print('cv2', cv2.__version__, '| GStreamer:', 'GSTREAMER' in cv2.getBuildInformation())"
-#   python -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
-#   # Expect:
-#   #   cv2 4.8.0 | GStreamer: True
-#   #   1.x.x ['CPUExecutionProvider']           ← CPU-only for PoC
-#
-# ── Getting GPU acceleration later (any of these are fine, none is trivial) ─
-#
-#   a) NVIDIA forum / developer downloads: search the NVIDIA Developer Forum
-#      for "onnxruntime-gpu jetpack 6.2 python 3.10 wheel". Dustin Franklin
-#      (dusty-nv) and NVIDIA staff periodically post fresh nvidia.box.com
-#      links there. Treat each link as having a finite lifetime.
-#
-#   b) jetson-containers (github.com/dusty-nv/jetson-containers) ships a
-#      `packages/ml/onnxruntime/` build recipe that produces a wheel from
-#      source for any (JetPack, Python) combination. Build takes 30–60 min
-#      on Orin Nano. Output wheel can be `pip install`'d.
-#
-#   c) Skip onnxruntime-gpu entirely — export the YOLO model to a TensorRT
-#      engine with `trtexec` and write a thin TRT-Python inference adapter.
-#      Best perf, most work. Worth it for production, overkill for PoC.
-#
-# Once you have a working aarch64 wheel locally:
-#   pip install /path/to/onnxruntime_gpu-*-cp310-cp310-linux_aarch64.whl
-# Then re-run the smoke test in step 5 — providers list should grow to:
-#   ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+# Smoke test:
+#   python -c "import cv2; print(cv2.__version__, 'GStreamer:', \
+#              'GStreamer:                   YES' in cv2.getBuildInformation())"
+#   python -c "import torch; print(torch.cuda.is_available())"
+#   python -c "from ultralytics import YOLO; print('ok')"
 
-# ── ONNX Runtime — CPU build from PyPI (provides aarch64 wheels) ───────────
+# ── CPU ONNX Runtime (fallback / .onnx artifacts) ──────────────────────────
 onnxruntime>=1.18
 
-# ── Everything else the runtime needs that wasn't already pulled in ────────
-numpy>=1.26,<2.0          # Jetson PyPI numpy 2.x can be flaky; stay on 1.x
-scikit-learn>=1.5         # DBSCAN for huddling detector
+# ── Ultralytics YOLO — drives the .pt → torch.cuda path ────────────────────
+# Pin loosely; ultralytics tracks its own torch compatibility matrix.
+ultralytics>=8.3,<9
+
+# ── ONVIF WS-Discovery for the RTSP camera auto-discovery flow ─────────────
+# Pure-Python, small dep — used by `src/edge/dashboard/discovery.py`.
+WSDiscovery>=2.0
+
+# ── Misc pins (stop pip from re-introducing CPU onnxruntime as a transitive) ──
+numpy>=1.26,<2.0
+scikit-learn>=1.5

@@ -34,12 +34,21 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from edge.config import DashboardSettings
+from edge.dashboard.adhoc import AdhocManager
 from edge.dashboard.camera_sources import classify_source, type_label
 from edge.dashboard.demo import DemoManager
+from edge.dashboard.discovery import (
+    discover_csi,
+    discover_file,
+    discover_rtsp,
+    discover_usb,
+)
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.read_model import ReadModel
 from edge.dashboard.stream_registry import StreamRegistry
 from edge.dashboard.views import (
+    AdhocStartRequest,
+    AdhocStatusView,
     AlertView,
     CameraSeriesView,
     CameraSourceView,
@@ -47,6 +56,7 @@ from edge.dashboard.views import (
     DemoStartRequest,
     DemoStatusView,
     DemoVideoView,
+    DiscoveredDeviceView,
     LiveEventView,
     ManualWeightView,
     SensorSeriesView,
@@ -77,6 +87,8 @@ def create_app(
     stream_registry: StreamRegistry | None = None,
     camera_supervisor: CameraSupervisor | None = None,
     demo_manager: DemoManager | None = None,
+    adhoc_manager: AdhocManager | None = None,
+    demo_videos_dir: Path | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to a specific ReadModel + EventBus."""
 
@@ -89,6 +101,7 @@ def create_app(
             static_dir=str(static_dir) if static_dir else None,
             streams=bool(stream_registry),
             demo=bool(demo_manager),
+            adhoc=bool(adhoc_manager),
         )
         yield
         log.info("dashboard.app.shutdown")
@@ -109,6 +122,8 @@ def create_app(
     app.state.stream_registry = stream_registry
     app.state.camera_supervisor = camera_supervisor
     app.state.demo_manager = demo_manager
+    app.state.adhoc_manager = adhoc_manager
+    app.state.demo_videos_dir = demo_videos_dir
 
     if settings.cors_origins:
         app.add_middleware(
@@ -123,6 +138,8 @@ def create_app(
     app.include_router(_build_stream_router(), prefix="/api")
     app.include_router(_build_sources_router(), prefix="/api")
     app.include_router(_build_demo_router(), prefix="/api")
+    app.include_router(_build_discovery_router(), prefix="/api")
+    app.include_router(_build_adhoc_router(), prefix="/api")
     app.include_router(_build_live_router())
 
     _mount_static(app, static_dir)
@@ -346,6 +363,122 @@ def _build_demo_router() -> APIRouter:
     async def stop(request: Request) -> DemoStatusView:
         mgr = _require_manager(request)
         return await mgr.stop()
+
+    return r
+
+
+# ── Discovery (Phase 4) ────────────────────────────────────────────────────
+
+
+def _build_discovery_router() -> APIRouter:
+    """`/api/discover/{type}` — auto-discover cameras of the chosen type."""
+    r = APIRouter()
+
+    @r.get("/discover/types", response_model=list[str])
+    async def types() -> list[str]:
+        # Dropdown options for the Sources tab.
+        return ["usb", "csi", "rtsp", "file"]
+
+    @r.get("/discover/usb", response_model=list[DiscoveredDeviceView])
+    async def usb_devices() -> list[DiscoveredDeviceView]:
+        raw = await discover_usb()
+        return [
+            DiscoveredDeviceView(
+                source_type="usb",
+                name=d.get("name") or d.get("device", "USB camera"),
+                device=d.get("device"),
+                width=d.get("width"),
+                height=d.get("height"),
+                fps=d.get("fps"),
+                suggested_source_uri=d.get("suggested_source_uri"),
+            )
+            for d in raw
+        ]
+
+    @r.get("/discover/csi", response_model=list[DiscoveredDeviceView])
+    async def csi_devices() -> list[DiscoveredDeviceView]:
+        raw = await discover_csi()
+        return [
+            DiscoveredDeviceView(
+                source_type="csi",
+                name=d.get("name", f"CSI sensor {d.get('sensor_id')}"),
+                sensor_id=d.get("sensor_id"),
+                width=d.get("width"),
+                height=d.get("height"),
+                fps=d.get("fps"),
+                suggested_source_uri=d.get("suggested_source_uri"),
+            )
+            for d in raw
+        ]
+
+    @r.get("/discover/rtsp", response_model=list[DiscoveredDeviceView])
+    async def rtsp_devices() -> list[DiscoveredDeviceView]:
+        raw = await discover_rtsp()
+        return [
+            DiscoveredDeviceView(
+                source_type="rtsp",
+                name=d.get("name") or d.get("ip", "ONVIF camera"),
+                ip=d.get("ip"),
+                xaddr=d.get("xaddr"),
+                requires_auth=d.get("requires_auth"),
+                suggested_source_uri=d.get("suggested_source_uri"),
+            )
+            for d in raw
+        ]
+
+    @r.get("/discover/file", response_model=list[DiscoveredDeviceView])
+    async def file_devices(request: Request) -> list[DiscoveredDeviceView]:
+        videos_dir: Path | None = request.app.state.demo_videos_dir
+        if videos_dir is None:
+            return []
+        raw = await discover_file(videos_dir)
+        return [
+            DiscoveredDeviceView(
+                source_type="file",
+                name=d["name"],
+                size_bytes=d.get("size_bytes"),
+                suggested_source_uri=d.get("suggested_source_uri"),
+            )
+            for d in raw
+        ]
+
+    return r
+
+
+# ── Ad-hoc camera control (Phase 4) ────────────────────────────────────────
+
+
+def _build_adhoc_router() -> APIRouter:
+    """`/api/cameras/adhoc/{start,stop,status}` — one user-driven camera at a time."""
+    r = APIRouter()
+
+    def _require_manager(request: Request) -> AdhocManager:
+        mgr: AdhocManager | None = request.app.state.adhoc_manager
+        if mgr is None:
+            raise HTTPException(status_code=503, detail="Ad-hoc camera subsystem not configured")
+        return mgr
+
+    @r.get("/cameras/adhoc/status", response_model=AdhocStatusView)
+    async def status(request: Request) -> AdhocStatusView:
+        return await _require_manager(request).status()
+
+    @r.post("/cameras/adhoc/start", response_model=AdhocStatusView)
+    async def start(body: AdhocStartRequest, request: Request) -> AdhocStatusView:
+        mgr = _require_manager(request)
+        try:
+            return await mgr.start(
+                source_type=body.source_type,
+                source_uri=body.source_uri,
+                label=body.label,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @r.post("/cameras/adhoc/stop", response_model=AdhocStatusView)
+    async def stop(request: Request) -> AdhocStatusView:
+        return await _require_manager(request).stop()
 
     return r
 

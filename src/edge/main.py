@@ -34,6 +34,7 @@ from edge.config import Settings, load_settings
 from edge.config_sources.http_config_source import HttpConfigSource
 from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
+from edge.dashboard.adhoc import AdhocManager
 from edge.dashboard.demo import DemoManager
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.projecting_outbox import ProjectingOutbox
@@ -186,9 +187,11 @@ async def amain(settings: Settings) -> None:
             def make_frame_pipeline(cam_cfg: dict[str, Any]) -> FramePipeline:
                 source = build_frame_source(cam_cfg, target_fps=target_fps)
                 broadcaster = stream_registry.get_or_create(cam_cfg["camera_id"])
-                # Demo cameras get a sync-bypassing outbox; everything else
-                # uses the durable one that SyncPipeline drains to the cloud.
-                target_outbox = demo_outbox if cam_cfg.get("role") == "demo" else outbox
+                # Demo and ad-hoc cameras both bypass cloud sync — they share
+                # the same NullOutbox-backed chain. Production cameras use the
+                # durable outbox that SyncPipeline drains.
+                role = cam_cfg.get("role")
+                target_outbox = demo_outbox if role in ("demo", "adhoc") else outbox
                 return FramePipeline(
                     device_id=settings.device_id,
                     source=source,
@@ -218,13 +221,18 @@ async def amain(settings: Settings) -> None:
             camera_sup = CameraSupervisor(task_group=tg, factory=make_frame_pipeline)
             sensor_sup = SensorSupervisor(task_group=tg, factory=make_sensor_pipeline)
 
+            demo_videos_dir = Path("demo/recordings")
             # DemoManager hooks the supervisor's completion callback in __init__
             # so a finished demo video clears the extras overlay automatically.
             demo_manager = DemoManager(
-                videos_dir=Path("demo/recordings"),
+                videos_dir=demo_videos_dir,
                 camera_supervisor=camera_sup,
                 read_model=read_model,
             )
+            # AdhocManager handles user-initiated ad-hoc cameras (Sources tab).
+            # Both demo and adhoc compete for the supervisor's single `extras`
+            # slot — starting one while the other is running returns 409.
+            adhoc_manager = AdhocManager(camera_supervisor=camera_sup)
 
             config_pipe = ConfigPipeline(
                 source=config_source,
@@ -254,6 +262,8 @@ async def amain(settings: Settings) -> None:
                     stream_registry=stream_registry,
                     camera_supervisor=camera_sup,
                     demo_manager=demo_manager,
+                    adhoc_manager=adhoc_manager,
+                    demo_videos_dir=demo_videos_dir,
                 )
                 tg.start_soon(dashboard_pipe.run)
 

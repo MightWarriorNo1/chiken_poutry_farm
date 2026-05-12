@@ -1,10 +1,13 @@
 import type {
+  AdhocStatusView,
   AlertView,
   CameraSeriesView,
   CameraSourceView,
   CameraView,
   DemoStatusView,
   DemoVideoView,
+  DiscoverSourceType,
+  DiscoveredDeviceView,
   ManualWeightView,
   SensorSeriesView,
   SensorView,
@@ -69,4 +72,16 @@ export const api = {
   demoStart: (video: string) =>
     postJSON<DemoStatusView>("/api/demo/start", { video }),
   demoStop: () => postJSON<DemoStatusView>("/api/demo/stop", {}),
+
+  // ── Phase 4 — discovery + ad-hoc cameras ────────────────────────────────
+  discoverTypes: () => getJSON<string[]>("/api/discover/types"),
+  discover: (kind: DiscoverSourceType) =>
+    getJSON<DiscoveredDeviceView[]>(`/api/discover/${kind}`),
+  adhocStatus: () => getJSON<AdhocStatusView>("/api/cameras/adhoc/status"),
+  adhocStart: (body: {
+    source_type: string;
+    source_uri: string;
+    label?: string;
+  }) => postJSON<AdhocStatusView>("/api/cameras/adhoc/start", body),
+  adhocStop: () => postJSON<AdhocStatusView>("/api/cameras/adhoc/stop", {}),
 };

@@ -166,3 +166,33 @@ export interface DemoStatusView {
   last_completed_video?: string | null;
   stream_url?: string | null;
 }
+
+// ── Phase 4 — discovery + ad-hoc cameras ───────────────────────────────────
+
+export type DiscoverSourceType = "usb" | "csi" | "rtsp" | "file";
+
+export interface DiscoveredDeviceView {
+  source_type: DiscoverSourceType;
+  name: string;
+  suggested_source_uri?: string | null;
+  device?: string | null;
+  sensor_id?: number | null;
+  ip?: string | null;
+  xaddr?: string | null;
+  requires_auth?: boolean | null;
+  size_bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  fps?: number | null;
+}
+
+export interface AdhocStatusView {
+  running: boolean;
+  camera_id?: string | null;
+  source_type?: string | null;
+  source_uri?: string | null;
+  label?: string | null;
+  started_at?: string | null;
+  elapsed_seconds?: number | null;
+  stream_url?: string | null;
+}
