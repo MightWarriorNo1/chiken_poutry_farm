@@ -200,11 +200,23 @@ class DemoVideoView(_View):
     frame_count: int | None = None
 
 
+class DemoImageView(_View):
+    """One test image that can be looped through the pipeline."""
+
+    name: str                  # bare filename, used as the start_image() identifier
+    path: str                  # absolute path on the device, for logs/debug
+    size_bytes: int
+    width: int | None = None
+    height: int | None = None
+
+
 class DemoStatusView(_View):
     """Snapshot of the demo subsystem — one running demo at a time."""
 
     running: bool
-    video: str | None = None
+    kind: str | None = None            # "video" | "image" when running
+    video: str | None = None           # set when a video demo is running
+    image: str | None = None           # set when an image demo is running
     camera_id: str | None = None       # always "demo" when running
     started_at: datetime | None = None
     elapsed_seconds: float | None = None
@@ -215,6 +227,7 @@ class DemoStatusView(_View):
     estimated_avg_weight_g: float | None = None
     completed_at: datetime | None = None
     last_completed_video: str | None = None
+    last_completed_image: str | None = None
     stream_url: str | None = None
 
 
@@ -222,6 +235,12 @@ class DemoStartRequest(_View):
     """Body of POST /api/demo/start."""
 
     video: str
+
+
+class DemoStartImageRequest(_View):
+    """Body of POST /api/demo/start-image."""
+
+    image: str
 
 
 # ── Sources / camera discovery (Phase 4) ────────────────────────────────────

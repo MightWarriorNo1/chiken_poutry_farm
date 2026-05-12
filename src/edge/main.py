@@ -53,7 +53,6 @@ from edge.inference.models.stub_weight_estimator import StubWeightEstimator
 from edge.inference.proxied_detector import DetectorRegistry, ProxiedBirdDetector
 from edge.inference.proxied_estimator import EstimatorRegistry, ProxiedWeightEstimator
 from edge.inference.proxied_huddling import HuddlingRegistry, ProxiedHuddlingDetector
-from edge.outbox.null_outbox import NullOutbox
 from edge.outbox.sqlite_outbox import SqliteOutbox
 from edge.pipelines.config_pipeline import ConfigPipeline
 from edge.pipelines.frame_pipeline import FramePipeline
@@ -80,6 +79,14 @@ async def amain(settings: Settings) -> None:
 
     inner_outbox = SqliteOutbox(settings.storage.outbox_path)
     await inner_outbox.init()
+
+    # Separate durable store for demo + ad-hoc events. Sits next to the
+    # production outbox on disk; SyncPipeline only reads `inner_outbox` so
+    # nothing here ever reaches the cloud — but you can inspect / replay /
+    # delete this file independently. Clear with `rm state/demo_outbox.db`.
+    demo_outbox_path = settings.storage.outbox_path.parent / "demo_outbox.db"
+    demo_inner = SqliteOutbox(demo_outbox_path)
+    await demo_inner.init()
 
     # Cloud is optional — when disabled, no HTTP client is opened, no
     # SyncPipeline runs, and events accumulate locally in the SqliteOutbox.
@@ -125,10 +132,12 @@ async def amain(settings: Settings) -> None:
         event_bus=event_bus,
     )
 
-    # Demo outbox: same dashboard tee + alert engine, but a no-op at the bottom
-    # so demo events never reach SqliteOutbox → never picked up by SyncPipeline
-    # → never reach the cloud. The dashboard still sees everything.
-    demo_inner = NullOutbox()
+    # Demo outbox: same dashboard tee + alert engine, but its durable backend
+    # is a SEPARATE SqliteOutbox file (state/demo_outbox.db). SyncPipeline
+    # only reads `inner_outbox`, so demo + ad-hoc events:
+    #   • are durably stored locally (available for offline analysis)
+    #   • never reach the cloud (SyncPipeline doesn't see them)
+    #   • are visible in the dashboard (shared read_model + event_bus)
     demo_alerting = AlertingOutbox(inner=demo_inner, engine=alert_engine)
     demo_outbox = ProjectingOutbox(
         inner=demo_alerting,
@@ -238,10 +247,14 @@ async def amain(settings: Settings) -> None:
             sensor_sup = SensorSupervisor(task_group=tg, factory=make_sensor_pipeline)
 
             demo_videos_dir = Path("demo/recordings")
+            demo_images_dir = Path("demo/images")
             # DemoManager hooks the supervisor's completion callback in __init__
             # so a finished demo video clears the extras overlay automatically.
+            # Image demos loop until Stop, so they don't fire the completion
+            # callback — same single-slot semantics either way.
             demo_manager = DemoManager(
                 videos_dir=demo_videos_dir,
+                images_dir=demo_images_dir,
                 camera_supervisor=camera_sup,
                 read_model=read_model,
             )
@@ -289,6 +302,7 @@ async def amain(settings: Settings) -> None:
         if cloud is not None:
             await cloud.close()
         await read_model.close()
+        await demo_inner.close()
         await inner_outbox.close()
         log.info("edge.stopped")
 

@@ -28,28 +28,35 @@ import anyio
 import structlog
 
 from edge.dashboard.read_model import ReadModel
-from edge.dashboard.views import DemoStatusView, DemoVideoView
+from edge.dashboard.views import DemoImageView, DemoStatusView, DemoVideoView
 from edge.supervisors.camera_supervisor import CameraSupervisor
 
 log = structlog.get_logger(__name__)
 
 DEMO_CAMERA_ID = "demo"
 VIDEO_EXTENSIONS = (".mp4", ".mkv", ".avi", ".mov", ".webm")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
 
 
 @dataclass(slots=True)
 class _DemoJob:
-    video: str
+    kind: str                              # "video" | "image"
+    name: str                              # bare filename
     path: Path
     started_at: datetime
-    duration_seconds: float | None
-    fps: float | None
-    frame_count: int | None
+    # Video-only metadata (None for image jobs).
+    duration_seconds: float | None = None
+    fps: float | None = None
+    frame_count: int | None = None
+    # Image-only metadata (None for video jobs).
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(slots=True)
 class _LastCompleted:
-    video: str
+    kind: str
+    name: str
     completed_at: datetime
 
 
@@ -96,18 +103,33 @@ def _probe_video(path: Path) -> dict[str, Any]:
         cap.release()
 
 
+def _probe_image(path: Path) -> dict[str, Any]:
+    """Get width/height of an image file without holding it in memory."""
+    try:
+        import cv2  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return {}
+    img = cv2.imread(str(path))
+    if img is None:
+        return {}
+    h, w = img.shape[:2]
+    return {"width": int(w), "height": int(h)}
+
+
 class DemoManager:
-    """One-at-a-time replay of demo videos through the live pipeline."""
+    """One-at-a-time replay of demo videos OR demo images through the live pipeline."""
 
     def __init__(
         self,
         *,
         videos_dir: Path,
+        images_dir: Path,
         camera_supervisor: CameraSupervisor,
         read_model: ReadModel,
         defaults: DemoCameraDefaults = _default_defaults,
     ) -> None:
         self._videos_dir = videos_dir
+        self._images_dir = images_dir
         self._supervisor = camera_supervisor
         self._read_model = read_model
         self._defaults = defaults
@@ -146,30 +168,52 @@ class DemoManager:
 
         return await anyio.to_thread.run_sync(_scan)
 
+    async def list_images(self) -> list[DemoImageView]:
+        """Scan `demo/images/` for still-image test inputs."""
+        if not self._images_dir.is_dir():
+            return []
+
+        def _scan() -> list[DemoImageView]:
+            out: list[DemoImageView] = []
+            for path in sorted(self._images_dir.iterdir()):
+                if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
+                    continue
+                stat = path.stat()
+                meta = _probe_image(path)
+                out.append(
+                    DemoImageView(
+                        name=path.name,
+                        path=str(path.resolve()),
+                        size_bytes=int(stat.st_size),
+                        width=meta.get("width"),
+                        height=meta.get("height"),
+                    )
+                )
+            return out
+
+        return await anyio.to_thread.run_sync(_scan)
+
     async def start(self, video: str) -> DemoStatusView:
-        # Sanity: caller-supplied filename should be a bare name in our dir,
-        # never a traversal path.
-        if "/" in video or "\\" in video or video in (".", ".."):
-            raise ValueError(f"Invalid demo video name: {video!r}")
-        target = self._videos_dir / video
-        if not target.is_file():
-            raise FileNotFoundError(f"Demo video not found: {target}")
+        """Start a video demo. Pipeline ends naturally when the video runs out."""
+        target = self._validate_filename(video, self._videos_dir, "video")
 
         async with self._lock:
             if self._current is not None:
                 raise RuntimeError(
-                    f"Demo already running ({self._current.video}); stop it first."
+                    f"Demo already running ({self._current.name}); stop it first."
                 )
 
             meta = await anyio.to_thread.run_sync(_probe_video, target)
-            now = datetime.now(timezone.utc)
             self._current = _DemoJob(
-                video=video,
+                kind="video",
+                name=video,
                 path=target,
-                started_at=now,
+                started_at=datetime.now(timezone.utc),
                 duration_seconds=meta.get("duration_seconds"),
                 fps=meta.get("fps"),
                 frame_count=meta.get("frame_count"),
+                width=meta.get("width"),
+                height=meta.get("height"),
             )
 
             cam_cfg = {
@@ -177,12 +221,45 @@ class DemoManager:
                 "camera_id": DEMO_CAMERA_ID,
                 "source_uri": f"file://{target.resolve()}",
                 "role": "demo",
-                "loop": False,
+                "loop": False,                      # videos end naturally
             }
-            log.info("demo.start", video=video, path=str(target))
+            log.info("demo.start", kind="video", name=video, path=str(target))
 
         # set_extras takes the supervisor lock; call it outside our own lock
         # to keep nesting predictable.
+        await self._supervisor.set_extras([cam_cfg])
+        return await self.status()
+
+    async def start_image(self, image: str) -> DemoStatusView:
+        """Start an image demo. Loops the same image until stopped — useful for
+        verifying detections on a still picture."""
+        target = self._validate_filename(image, self._images_dir, "image")
+
+        async with self._lock:
+            if self._current is not None:
+                raise RuntimeError(
+                    f"Demo already running ({self._current.name}); stop it first."
+                )
+
+            meta = await anyio.to_thread.run_sync(_probe_image, target)
+            self._current = _DemoJob(
+                kind="image",
+                name=image,
+                path=target,
+                started_at=datetime.now(timezone.utc),
+                width=meta.get("width"),
+                height=meta.get("height"),
+            )
+
+            cam_cfg = {
+                **self._defaults(image),
+                "camera_id": DEMO_CAMERA_ID,
+                "source_uri": f"file://{target.resolve()}",
+                "role": "demo",
+                "loop": True,                       # images re-feed until Stop
+            }
+            log.info("demo.start", kind="image", name=image, path=str(target))
+
         await self._supervisor.set_extras([cam_cfg])
         return await self.status()
 
@@ -191,15 +268,26 @@ class DemoManager:
             if self._current is None:
                 # Idempotent: stopping when nothing is running is a no-op.
                 return await self._build_status_locked()
-            video = self._current.video
+            name = self._current.name
             self._current = None
-            log.info("demo.stop", video=video)
+            log.info("demo.stop", name=name)
         await self._supervisor.set_extras([])
         return await self.status()
 
     async def status(self) -> DemoStatusView:
         async with self._lock:
             return await self._build_status_locked()
+
+    # ── private ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _validate_filename(name: str, root: Path, kind: str) -> Path:
+        if "/" in name or "\\" in name or name in (".", ".."):
+            raise ValueError(f"Invalid demo {kind} name: {name!r}")
+        target = root / name
+        if not target.is_file():
+            raise FileNotFoundError(f"Demo {kind} not found: {target}")
+        return target
 
     # ── private ────────────────────────────────────────────────────────────
 
@@ -234,7 +322,9 @@ class DemoManager:
 
         return DemoStatusView(
             running=bool(running),
-            video=current.video if current else None,
+            kind=current.kind if current else None,
+            video=current.name if current and current.kind == "video" else None,
+            image=current.name if current and current.kind == "image" else None,
             camera_id=DEMO_CAMERA_ID if running else None,
             started_at=current.started_at if current else None,
             elapsed_seconds=elapsed,
@@ -244,7 +334,12 @@ class DemoManager:
             huddling_score=huddling,
             estimated_avg_weight_g=weight_g,
             completed_at=last.completed_at if last else None,
-            last_completed_video=last.video if last else None,
+            last_completed_video=(
+                last.name if last and last.kind == "video" else None
+            ),
+            last_completed_image=(
+                last.name if last and last.kind == "image" else None
+            ),
             stream_url=stream_url,
         )
 
@@ -256,10 +351,11 @@ class DemoManager:
                 # Already stopped manually. Nothing to do.
                 return
             self._last_completed = _LastCompleted(
-                video=self._current.video,
+                kind=self._current.kind,
+                name=self._current.name,
                 completed_at=datetime.now(timezone.utc),
             )
-            log.info("demo.complete", video=self._current.video)
+            log.info("demo.complete", kind=self._current.kind, name=self._current.name)
             self._current = None
         # Clear extras (supervisor takes its own lock).
         try:

@@ -53,6 +53,8 @@ from edge.dashboard.views import (
     CameraSeriesView,
     CameraSourceView,
     CameraView,
+    DemoImageView,
+    DemoStartImageRequest,
     DemoStartRequest,
     DemoStatusView,
     DemoVideoView,
@@ -342,6 +344,11 @@ def _build_demo_router() -> APIRouter:
         mgr = _require_manager(request)
         return await mgr.list_videos()
 
+    @r.get("/demo/images", response_model=list[DemoImageView])
+    async def list_images(request: Request) -> list[DemoImageView]:
+        mgr = _require_manager(request)
+        return await mgr.list_images()
+
     @r.get("/demo/status", response_model=DemoStatusView)
     async def status(request: Request) -> DemoStatusView:
         mgr = _require_manager(request)
@@ -352,6 +359,20 @@ def _build_demo_router() -> APIRouter:
         mgr = _require_manager(request)
         try:
             return await mgr.start(body.video)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @r.post("/demo/start-image", response_model=DemoStatusView)
+    async def start_image(
+        body: DemoStartImageRequest, request: Request
+    ) -> DemoStatusView:
+        mgr = _require_manager(request)
+        try:
+            return await mgr.start_image(body.image)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:

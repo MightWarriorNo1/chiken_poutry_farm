@@ -151,9 +151,19 @@ export interface DemoVideoView {
   frame_count?: number | null;
 }
 
+export interface DemoImageView {
+  name: string;
+  path: string;
+  size_bytes: number;
+  width?: number | null;
+  height?: number | null;
+}
+
 export interface DemoStatusView {
   running: boolean;
+  kind?: "video" | "image" | null;
   video?: string | null;
+  image?: string | null;
   camera_id?: string | null;
   started_at?: string | null;
   elapsed_seconds?: number | null;
@@ -164,6 +174,7 @@ export interface DemoStatusView {
   estimated_avg_weight_g?: number | null;
   completed_at?: string | null;
   last_completed_video?: string | null;
+  last_completed_image?: string | null;
   stream_url?: string | null;
 }
 

@@ -1,6 +1,15 @@
 """File-backed frame source for development and demos.
 
-Reads either a video file (via OpenCV) or a directory of images, in a loop.
+Three input modes (auto-detected at open() time by path type + extension):
+
+  - Directory of images       → cycle through them, re-reading each via cv2.imread
+  - Single image file (.jpg/.png/.bmp/.jpeg)
+                              → re-read the same file every tick (1-item image list).
+                                Useful for "demo against a still image."
+  - Anything else (video file) → opened via cv2.VideoCapture, frames pulled in order
+
+`loop=False` ends the iterator after one pass through the input. For single
+image files that means yielding exactly one frame.
 """
 
 from __future__ import annotations
@@ -13,9 +22,11 @@ import anyio
 
 from edge.capture.source import Frame
 
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+
 
 class FileFrameSource:
-    """Cycles through an image dir or video file at the configured FPS."""
+    """Cycles through an image dir, a single image, or a video at the configured FPS."""
 
     def __init__(
         self,
@@ -34,10 +45,14 @@ class FileFrameSource:
 
     async def open(self) -> None:
         if self._path.is_dir():
-            exts = {".jpg", ".jpeg", ".png", ".bmp"}
-            self._image_paths = sorted(p for p in self._path.iterdir() if p.suffix.lower() in exts)
+            self._image_paths = sorted(
+                p for p in self._path.iterdir() if p.suffix.lower() in _IMAGE_EXTENSIONS
+            )
             if not self._image_paths:
                 raise RuntimeError(f"No images found in {self._path}")
+        elif self._path.suffix.lower() in _IMAGE_EXTENSIONS:
+            # Single image file — re-uses the image-list code path with 1 entry.
+            self._image_paths = [self._path]
         else:
             import cv2  # noqa: PLC0415
 

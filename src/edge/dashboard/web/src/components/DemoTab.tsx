@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Film,
+  Image as ImageIcon,
   Loader2,
   PlayCircle,
   Square,
@@ -11,7 +12,7 @@ import { useState } from "react";
 
 import { api } from "../api";
 import { fmtInt, fmtNumber, fmtPct } from "../format";
-import type { DemoStatusView, DemoVideoView } from "../types";
+import type { DemoImageView, DemoStatusView, DemoVideoView } from "../types";
 import { Empty } from "./Empty";
 import { LiveView } from "./LiveView";
 
@@ -32,6 +33,11 @@ export function DemoTab() {
     queryFn: api.demoVideos,
     refetchInterval: 30_000,
   });
+  const images = useQuery({
+    queryKey: ["demo", "images"],
+    queryFn: api.demoImages,
+    refetchInterval: 30_000,
+  });
 
   const status = useQuery({
     queryKey: ["demo", "status"],
@@ -48,6 +54,14 @@ export function DemoTab() {
     },
   });
 
+  const startImageMut = useMutation({
+    mutationFn: (image: string) => api.demoStartImage(image),
+    onSuccess: (data) => {
+      qc.setQueryData(["demo", "status"], data);
+      qc.invalidateQueries({ queryKey: ["cameraSources"] });
+    },
+  });
+
   const stopMut = useMutation({
     mutationFn: () => api.demoStop(),
     onSuccess: (data) => {
@@ -56,7 +70,10 @@ export function DemoTab() {
     },
   });
 
-  const errorMsg = startMut.error?.message ?? stopMut.error?.message;
+  const errorMsg =
+    startMut.error?.message ??
+    startImageMut.error?.message ??
+    stopMut.error?.message;
 
   return (
     <div className="space-y-6">
@@ -76,6 +93,7 @@ export function DemoTab() {
             className="text-xs text-rose-300 underline"
             onClick={() => {
               startMut.reset();
+              startImageMut.reset();
               stopMut.reset();
             }}
           >
@@ -86,7 +104,7 @@ export function DemoTab() {
 
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-          Recordings
+          Recordings (videos)
         </h3>
         {videos.isLoading ? (
           <div className="text-sm text-slate-500">Scanning demo/recordings…</div>
@@ -103,10 +121,44 @@ export function DemoTab() {
                 key={v.name}
                 video={v}
                 running={status.data?.running ?? false}
-                activeVideo={status.data?.video ?? null}
+                activeName={
+                  status.data?.kind === "video" ? status.data.video ?? null : null
+                }
                 onStart={() => startMut.mutate(v.name)}
                 starting={
                   startMut.isPending && startMut.variables === v.name
+                }
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          Test images
+        </h3>
+        {images.isLoading ? (
+          <div className="text-sm text-slate-500">Scanning demo/images…</div>
+        ) : !images.data || images.data.length === 0 ? (
+          <Empty
+            icon={<ImageIcon className="h-6 w-6" />}
+            title="No demo images found"
+            description="Drop image files (.jpg, .jpeg, .png, .bmp) into demo/images/ on the device, then refresh. The image will loop through the live pipeline until you press Stop."
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {images.data.map((img) => (
+              <ImageCard
+                key={img.name}
+                image={img}
+                running={status.data?.running ?? false}
+                activeName={
+                  status.data?.kind === "image" ? status.data.image ?? null : null
+                }
+                onStart={() => startImageMut.mutate(img.name)}
+                starting={
+                  startImageMut.isPending && startImageMut.variables === img.name
                 }
               />
             ))}
@@ -150,15 +202,22 @@ function StatusCard({
 
   if (status.running) {
     const pct = progressPct(status);
+    const isImage = status.kind === "image";
+    const displayName = status.video ?? status.image ?? "(unknown)";
     return (
       <div className="card border-sky-500/40">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-sky-300">
-              Demo running
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-300">
+              {isImage ? (
+                <ImageIcon className="h-3.5 w-3.5" />
+              ) : (
+                <Film className="h-3.5 w-3.5" />
+              )}
+              Demo running · {status.kind}
             </div>
             <div className="mt-1 text-base font-semibold text-slate-100">
-              {status.video}
+              {displayName}
             </div>
             <div className="mt-1 text-xs text-slate-500">
               camera_id: <code className="text-slate-300">{status.camera_id}</code>
@@ -167,6 +226,7 @@ function StatusCard({
               {status.duration_seconds != null && (
                 <> · {fmtNumber(status.duration_seconds, 0)}s long</>
               )}
+              {isImage && <> · looping until Stop</>}
             </div>
           </div>
           <div className="flex flex-col gap-2">
@@ -220,24 +280,22 @@ function StatusCard({
     );
   }
 
-  if (status.last_completed_video) {
+  const lastName = status.last_completed_video ?? status.last_completed_image;
+  if (lastName) {
     return (
       <div className="card border-emerald-500/30">
         <div className="flex items-center gap-2 text-sm">
           <CheckCircle2 className="h-4 w-4 text-emerald-400" />
           <div>
             <div className="text-slate-100">
-              Last demo:{" "}
-              <span className="font-semibold">
-                {status.last_completed_video}
-              </span>
+              Last demo: <span className="font-semibold">{lastName}</span>
             </div>
             <div className="text-xs text-slate-500">
               Completed{" "}
               {status.completed_at
                 ? new Date(status.completed_at).toLocaleString()
                 : ""}
-              . Pick another recording below to start a new run.
+              . Pick another recording or test image below to start a new run.
             </div>
           </div>
         </div>
@@ -263,7 +321,7 @@ function StatusCard({
 interface VideoCardProps {
   video: DemoVideoView;
   running: boolean;
-  activeVideo: string | null;
+  activeName: string | null;
   onStart: () => void;
   starting: boolean;
 }
@@ -271,11 +329,11 @@ interface VideoCardProps {
 function VideoCard({
   video,
   running,
-  activeVideo,
+  activeName,
   onStart,
   starting,
 }: VideoCardProps) {
-  const isActive = running && activeVideo === video.name;
+  const isActive = running && activeName === video.name;
   const canStart = !running && !starting;
 
   return (
@@ -326,6 +384,74 @@ function VideoCard({
             <PlayCircle className="h-3.5 w-3.5" />
           )}
           {isActive ? "Active" : "Start"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface ImageCardProps {
+  image: DemoImageView;
+  running: boolean;
+  activeName: string | null;
+  onStart: () => void;
+  starting: boolean;
+}
+
+function ImageCard({
+  image,
+  running,
+  activeName,
+  onStart,
+  starting,
+}: ImageCardProps) {
+  const isActive = running && activeName === image.name;
+  const canStart = !running && !starting;
+
+  return (
+    <div className={`card ${isActive ? "border-sky-500/40" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <ImageIcon className="h-4 w-4 text-amber-400" />
+            <span className="truncate" title={image.name}>
+              {image.name}
+            </span>
+            {isActive && (
+              <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-sky-300">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+                looping
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 tabular-nums">
+            {image.width && image.height && (
+              <span>
+                {image.width}×{image.height}
+              </span>
+            )}
+            <span>{(image.size_bytes / 1024).toFixed(0)} KB</span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onStart}
+          disabled={!canStart}
+          className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+          title={
+            running && !isActive
+              ? "Stop the running demo first"
+              : isActive
+                ? "Already running"
+                : "Loop this image through the pipeline (Stop when satisfied)"
+          }
+        >
+          {starting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <PlayCircle className="h-3.5 w-3.5" />
+          )}
+          {isActive ? "Active" : "Test"}
         </button>
       </div>
     </div>
