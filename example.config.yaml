@@ -12,8 +12,11 @@ device_id: edge-dev-001
 issued_at: "2026-05-11T00:00:00Z"
 
 cameras:
-  - camera_id: cam-demo-1
-    source_uri: "file://./demo/frames"   # also accepts an MP4 path
+  # Real USB camera plugged into the Jetson — V4L2 backend (no GStreamer
+  # required for plain UVC). To go back to the offline demo-frames camera,
+  # change source_uri to "file://./demo/frames".
+  - camera_id: usb-cam-1
+    source_uri: "/dev/video0"
     role: general
     shed_id: shed-1
     zone_id: zone-A
@@ -58,12 +61,16 @@ sensors:
   #     topic: prosper/sensors/shed-1/temp-1
 
 ai:
-  frame_interval_seconds: 2.0
+  # One frame per second — snappy dashboard updates, easy on the Orin NX GPU.
+  # Drop to 0.5 (2 fps) for closer-to-video feel, raise to 2.0 to save power.
+  frame_interval_seconds: 1.0
   models:
-    # Default to stubs so demos run with zero setup.
-    # After `python scripts/download_yolov8n.py`, change to "1.0.0" for real YOLO.
+    # Real YOLO from models/bird-detector/v1.0.0/model.pt. The inference
+    # factory sees the .pt extension and dispatches to UltralyticsBirdDetector
+    # → torch.cuda on the Jetson iGPU. Falls back to the stub automatically
+    # if the artifact is missing (look for `StubBirdDetector` in boot logs).
     - name: bird-detector
-      version: stub-0.0.1
+      version: "1.0.0"
     # Heuristic weight estimator works out of the box (no artifact required).
     - name: weight-estimator
       version: "0.1.0"
