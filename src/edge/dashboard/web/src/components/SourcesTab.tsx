@@ -12,7 +12,7 @@ import {
   Wifi,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
 import { fmtNumber } from "../format";
@@ -21,7 +21,6 @@ import type {
   DiscoveredDeviceView,
   DiscoverSourceType,
 } from "../types";
-import { LiveView } from "./LiveView";
 
 /**
  * Sources tab — dropdown of camera types → auto-discover → start ad-hoc.
@@ -52,7 +51,6 @@ const ICONS: Record<DiscoverSourceType, ReactNode> = {
 export function SourcesTab() {
   const qc = useQueryClient();
   const [selectedType, setSelectedType] = useState<DiscoverSourceType>("usb");
-  const [showLive, setShowLive] = useState(false);
 
   const discovery = useQuery({
     queryKey: ["discover", selectedType],
@@ -90,7 +88,6 @@ export function SourcesTab() {
       <AdhocStatusCard
         status={adhoc.data}
         onStop={() => stopMut.mutate()}
-        onOpenLive={() => setShowLive(true)}
         stopping={stopMut.isPending}
       />
 
@@ -191,12 +188,6 @@ export function SourcesTab() {
         />
       </section>
 
-      {showLive && adhoc.data?.running && adhoc.data.camera_id && (
-        <LiveView
-          cameraId={adhoc.data.camera_id}
-          onClose={() => setShowLive(false)}
-        />
-      )}
     </div>
   );
 }
@@ -206,16 +197,22 @@ export function SourcesTab() {
 interface AdhocStatusCardProps {
   status: AdhocStatusView | undefined;
   onStop: () => void;
-  onOpenLive: () => void;
   stopping: boolean;
 }
 
-function AdhocStatusCard({
-  status,
-  onStop,
-  onOpenLive,
-  stopping,
-}: AdhocStatusCardProps) {
+function AdhocStatusCard({ status, onStop, stopping }: AdhocStatusCardProps) {
+  // Cache-buster: a new key every time the camera_id changes so re-starting
+  // doesn't resurrect the closed MJPEG stream from the browser image cache.
+  // useMemo + dependency on camera_id keeps the URL stable for the duration
+  // of one running session (otherwise the <img> re-mounts every render and
+  // re-connects the MJPEG stream from scratch).
+  const streamKey = useMemo(() => Date.now(), [status?.camera_id]);
+  const [errored, setErrored] = useState(false);
+
+  useEffect(() => {
+    setErrored(false);
+  }, [status?.camera_id]);
+
   if (!status) {
     return (
       <div className="card flex items-center gap-2 text-sm text-slate-500">
@@ -224,26 +221,31 @@ function AdhocStatusCard({
       </div>
     );
   }
+
   if (!status.running) {
     return (
       <div className="card text-sm text-slate-400">
         <div className="text-slate-100">No ad-hoc camera running.</div>
         <div className="mt-1 text-xs text-slate-500">
-          Pick a camera type below and click <strong>Discover</strong>. If the
-          device finds any cameras, click <strong>Start streaming</strong> on
-          one to see its live feed. Ad-hoc events are tagged{" "}
+          Pick a camera type below and click <strong>Discover</strong>. Click{" "}
+          <strong>Start</strong> on a found device and its annotated live feed
+          will appear right here. Ad-hoc events are tagged{" "}
           <code className="text-slate-300">role: adhoc</code> and never reach
           the cloud.
         </div>
       </div>
     );
   }
+
+  const streamSrc = `${api.cameraStreamUrl(status.camera_id ?? "adhoc")}?t=${streamKey}`;
+
   return (
-    <div className="card border-sky-500/40">
-      <div className="flex items-start justify-between gap-3">
+    <div className="card border-sky-500/40 p-0 overflow-hidden">
+      <div className="flex items-start justify-between gap-3 border-b border-ink-700 px-4 py-3">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold uppercase tracking-wider text-sky-300">
-            Ad-hoc camera running
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-300">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+            Live · ad-hoc
           </div>
           <div className="mt-1 truncate text-base font-semibold text-slate-100">
             {status.label ?? status.source_uri}
@@ -259,29 +261,42 @@ function AdhocStatusCard({
             {fmtNumber(status.elapsed_seconds, 0)}s elapsed
           </div>
         </div>
-        <div className="flex flex-shrink-0 flex-col gap-2">
-          <button
-            type="button"
-            onClick={onOpenLive}
-            className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-300 hover:bg-sky-500/20"
-          >
-            <PlayCircle className="h-3.5 w-3.5" />
-            Live view
-          </button>
-          <button
-            type="button"
-            onClick={onStop}
-            disabled={stopping}
-            className="inline-flex items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
-          >
-            {stopping ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Square className="h-3.5 w-3.5" />
-            )}
-            Stop
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={stopping}
+          className="inline-flex flex-shrink-0 items-center gap-1 rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"
+        >
+          {stopping ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Square className="h-3.5 w-3.5" />
+          )}
+          Stop
+        </button>
+      </div>
+      <div className="flex items-center justify-center bg-black">
+        {errored ? (
+          <div className="px-6 py-12 text-center text-sm text-slate-400">
+            <div className="font-semibold text-slate-200">
+              No live frames yet
+            </div>
+            <div className="mt-1 max-w-md text-xs text-slate-500">
+              The pipeline hasn't produced an annotated frame yet — usually
+              this means the camera URI couldn't open, or the first inference
+              tick hasn't fired. Wait a few seconds, then refresh, or check
+              the <code>prosper-edge</code> logs for{" "}
+              <code>frame.process.failed</code>.
+            </div>
+          </div>
+        ) : (
+          <img
+            src={streamSrc}
+            alt={`Live feed from ${status.label ?? status.camera_id}`}
+            className="block max-h-[60vh] w-auto"
+            onError={() => setErrored(true)}
+          />
+        )}
       </div>
     </div>
   );
