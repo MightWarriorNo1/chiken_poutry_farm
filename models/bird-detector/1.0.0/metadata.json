@@ -1,8 +1,8 @@
 {
   "name": "bird-detector",
   "version": "1.0.0",
-  "framework": "ultralytics-yolov8n",
-  "format": "onnx",
+  "framework": "ultralytics-yolov8",
+  "format": "pytorch",
   "artifact": "model.pt",
   "input": {
     "shape": [1, 3, 640, 640],
@@ -11,12 +11,13 @@
     "color_space": "rgb",
     "normalize": "0-1"
   },
-  "classes": [{"id": 14, "name": "bird"}],
+  "classes": [{"id": 0, "name": "chicken"}],
   "thresholds": {
     "confidence": 0.25,
     "iou": 0.45
   },
-  "trained_on": "coco-yolov8n-pretrained",
-  "exported_at": "2026-05-11T00:00:00Z",
-  "notes": "Bootstrap: pretrained YOLOv8n COCO. Filters to class 14 (bird). Replace with poultry-fine-tuned variant in v1.1.0+. Run scripts/download_yolov8n.py to populate model.pt alongside."
+  "trained_on": "drcardinal/chicken-detector",
+  "model_source": "https://github.com/drcardinal/chicken-detector/blob/main/weights/best.pt",
+  "exported_at": "2026-05-12T00:00:00Z",
+  "notes": "Single-class chicken detector (class 0 = chicken). Loaded via UltralyticsBirdDetector → torch.cuda on Jetson. To revert to COCO YOLOv8n bird-class filter, change classes to [{id: 14, name: bird}] and swap model.pt."
 }
