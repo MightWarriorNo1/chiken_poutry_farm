@@ -396,7 +396,10 @@ def _build_demo_router() -> APIRouter:
         if store is None:
             return []
         runs = await store.list_runs(limit=limit)
-        return [DemoRunView(**r.__dict__) for r in runs]
+        # DemoRun is a slots dataclass (no __dict__) — use asdict to serialize.
+        from dataclasses import asdict  # noqa: PLC0415
+
+        return [DemoRunView(**asdict(r)) for r in runs]
 
     return r
 

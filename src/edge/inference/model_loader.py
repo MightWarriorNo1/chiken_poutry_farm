@@ -41,7 +41,14 @@ class ModelDescriptor:
 
     @property
     def is_stub(self) -> bool:
-        return self.artifact_path is None or self.version.startswith("stub")
+        """True only when the version is explicitly tagged `stub-*`.
+
+        Real adapters that don't need a disk artifact (heuristic / config-only
+        models like the DBSCAN huddling detector) get `artifact_path=None` but
+        are NOT stubs — their factory builds the heuristic adapter from the
+        metadata dict.
+        """
+        return self.version.startswith("stub")
 
 
 class ModelLoader:
@@ -72,6 +79,19 @@ class ModelLoader:
             raise FileNotFoundError(f"Missing metadata.json in {version_dir}")
 
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        # Config-only models (heuristic adapters like the weight estimator +
+        # DBSCAN huddling detector) carry no disk artifact — `format` says so
+        # explicitly. They get a descriptor with no artifact_path; their
+        # factory then constructs a pure-Python adapter from `metadata`.
+        if metadata.get("format") == "config-only":
+            return ModelDescriptor(
+                name=name,
+                version=version,
+                artifact_path=None,
+                metadata=metadata,
+            )
+
         artifact_name = metadata.get("artifact", "model.onnx")
         artifact_path = version_dir / artifact_name
         if not artifact_path.is_file():
