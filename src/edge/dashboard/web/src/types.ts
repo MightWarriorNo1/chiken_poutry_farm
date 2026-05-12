@@ -219,3 +219,16 @@ export interface AdhocStatusView {
   elapsed_seconds?: number | null;
   stream_url?: string | null;
 }
+
+// ── Phase 5 — inference algorithm selector ─────────────────────────────────
+
+export interface InferenceVersionView {
+  version: string;
+  algorithm: string;
+  display_name: string;
+  requires_artifact: boolean;
+  artifact_present: boolean;
+  available: boolean;
+  is_active: boolean;
+  notes?: string | null;
+}

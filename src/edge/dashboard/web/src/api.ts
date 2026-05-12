@@ -10,6 +10,7 @@ import type {
   DemoVideoView,
   DiscoverSourceType,
   DiscoveredDeviceView,
+  InferenceVersionView,
   ManualWeightView,
   SensorSeriesView,
   SensorView,
@@ -91,4 +92,15 @@ export const api = {
     label?: string;
   }) => postJSON<AdhocStatusView>("/api/cameras/adhoc/start", body),
   adhocStop: () => postJSON<AdhocStatusView>("/api/cameras/adhoc/stop", {}),
+
+  // ── Phase 5 — inference algorithm selector ─────────────────────────────
+  inferenceVersions: (modelName: string) =>
+    getJSON<InferenceVersionView[]>(
+      `/api/inference/${encodeURIComponent(modelName)}/versions`,
+    ),
+  inferenceSelect: (modelName: string, version: string) =>
+    postJSON<InferenceVersionView>(
+      `/api/inference/${encodeURIComponent(modelName)}/select`,
+      { version },
+    ),
 };

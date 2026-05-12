@@ -302,3 +302,25 @@ class AdhocStatusView(_View):
     elapsed_seconds: float | None = None
     stream_url: str | None = None
 
+
+# ── Inference algorithm selector (Phase 5) ──────────────────────────────────
+
+
+class InferenceVersionView(_View):
+    """One row in the per-model algorithm dropdown."""
+
+    version: str
+    algorithm: str
+    display_name: str
+    requires_artifact: bool
+    artifact_present: bool
+    available: bool
+    is_active: bool
+    notes: str | None = None
+
+
+class InferenceSelectRequest(_View):
+    """Body of POST /api/inference/{model_name}/select."""
+
+    version: str
+

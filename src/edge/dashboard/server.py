@@ -37,6 +37,7 @@ from edge.config import DashboardSettings
 from edge.dashboard.adhoc import AdhocManager
 from edge.dashboard.camera_sources import classify_source, type_label
 from edge.dashboard.demo import DemoManager
+from edge.dashboard.inference_control import InferenceControl
 from edge.dashboard.discovery import (
     discover_csi,
     discover_file,
@@ -60,6 +61,8 @@ from edge.dashboard.views import (
     DemoStatusView,
     DemoVideoView,
     DiscoveredDeviceView,
+    InferenceSelectRequest,
+    InferenceVersionView,
     LiveEventView,
     ManualWeightView,
     SensorSeriesView,
@@ -92,6 +95,7 @@ def create_app(
     demo_manager: DemoManager | None = None,
     adhoc_manager: AdhocManager | None = None,
     demo_videos_dir: Path | None = None,
+    inference_control: InferenceControl | None = None,
 ) -> FastAPI:
     """Build a FastAPI app wired to a specific ReadModel + EventBus."""
 
@@ -127,6 +131,7 @@ def create_app(
     app.state.demo_manager = demo_manager
     app.state.adhoc_manager = adhoc_manager
     app.state.demo_videos_dir = demo_videos_dir
+    app.state.inference_control = inference_control
 
     if settings.cors_origins:
         app.add_middleware(
@@ -143,6 +148,7 @@ def create_app(
     app.include_router(_build_demo_router(), prefix="/api")
     app.include_router(_build_discovery_router(), prefix="/api")
     app.include_router(_build_adhoc_router(), prefix="/api")
+    app.include_router(_build_inference_router(), prefix="/api")
     app.include_router(_build_live_router())
 
     _mount_static(app, static_dir)
@@ -516,6 +522,72 @@ def _build_adhoc_router() -> APIRouter:
     @r.post("/cameras/adhoc/stop", response_model=AdhocStatusView)
     async def stop(request: Request) -> AdhocStatusView:
         return await _require_manager(request).stop()
+
+    return r
+
+
+# ── Inference algorithm selector (Phase 5) ────────────────────────────────
+
+
+def _build_inference_router() -> APIRouter:
+    """`/api/inference/{model_name}/{versions,select}` — dashboard dropdown."""
+    r = APIRouter()
+
+    def _require_control(request: Request) -> InferenceControl:
+        ctrl: InferenceControl | None = request.app.state.inference_control
+        if ctrl is None:
+            raise HTTPException(
+                status_code=503, detail="Inference control not configured"
+            )
+        return ctrl
+
+    @r.get(
+        "/inference/{model_name}/versions",
+        response_model=list[InferenceVersionView],
+    )
+    async def versions(model_name: str, request: Request) -> list[InferenceVersionView]:
+        ctrl = _require_control(request)
+        rows = await ctrl.list_versions(model_name)
+        return [
+            InferenceVersionView(
+                version=v.version,
+                algorithm=v.algorithm,
+                display_name=v.display_name,
+                requires_artifact=v.requires_artifact,
+                artifact_present=v.artifact_present,
+                available=v.available,
+                is_active=v.is_active,
+                notes=v.notes,
+            )
+            for v in rows
+        ]
+
+    @r.post(
+        "/inference/{model_name}/select",
+        response_model=InferenceVersionView,
+    )
+    async def select(
+        model_name: str,
+        body: InferenceSelectRequest,
+        request: Request,
+    ) -> InferenceVersionView:
+        ctrl = _require_control(request)
+        try:
+            v = await ctrl.select(model_name, body.version)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return InferenceVersionView(
+            version=v.version,
+            algorithm=v.algorithm,
+            display_name=v.display_name,
+            requires_artifact=v.requires_artifact,
+            artifact_present=v.artifact_present,
+            available=v.available,
+            is_active=v.is_active,
+            notes=v.notes,
+        )
 
     return r
 

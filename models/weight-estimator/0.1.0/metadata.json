@@ -2,7 +2,8 @@
   "name": "weight-estimator",
   "version": "0.1.0",
   "framework": "heuristic-lookup",
-  "format": "json",
+  "format": "config-only",
+  "algorithm": "heuristic",
   "default_breed": "ross_308",
   "baseline_confidence": 0.4,
   "growth_curves": {

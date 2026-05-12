@@ -1,0 +1,11 @@
+{
+  "name": "huddling-detector",
+  "version": "0.1.0",
+  "framework": "dbscan",
+  "format": "config-only",
+  "algorithm": "dbscan",
+  "eps": 0.05,
+  "min_samples": 4,
+  "zone_overrides": {},
+  "notes": "DBSCAN clustering over normalized bird centroids. Tunable knobs: eps (radius in [0,1] image coords; smaller = stricter), min_samples (minimum birds per cluster). Reload picks up changes at the next config poll or on restart."
+}

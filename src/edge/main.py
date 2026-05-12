@@ -38,6 +38,7 @@ from edge.dashboard.adhoc import AdhocManager
 from edge.dashboard.demo import DemoManager
 from edge.dashboard.demo_history import DemoHistoryStore
 from edge.dashboard.event_bus import EventBus
+from edge.dashboard.inference_control import InferenceControl
 from edge.dashboard.projecting_outbox import ProjectingOutbox
 from edge.dashboard.server import threshold_provider_from_supervisor
 from edge.dashboard.sqlite_read_model import SqliteReadModel
@@ -281,6 +282,16 @@ async def amain(settings: Settings) -> None:
                 poll_interval_seconds=settings.cadence.config_poll_interval_seconds,
             )
 
+            # Dashboard-driven algorithm picker — overlays the supervisor with
+            # user-chosen versions per model (e.g. dbscan vs yolo-seg huddling).
+            inference_control = InferenceControl(
+                supervisor=inference_sup,
+                loader=model_loader,
+                models_root=Path("models"),
+                state_path=settings.storage.outbox_path.parent / "inference_selection.json",
+            )
+            await inference_control.load()
+
             tg.start_soon(heartbeat_pipe.run)
             if sync_pipe is not None:
                 tg.start_soon(sync_pipe.run)
@@ -303,6 +314,7 @@ async def amain(settings: Settings) -> None:
                     demo_manager=demo_manager,
                     adhoc_manager=adhoc_manager,
                     demo_videos_dir=demo_videos_dir,
+                    inference_control=inference_control,
                 )
                 tg.start_soon(dashboard_pipe.run)
 

@@ -88,11 +88,34 @@ def build_weight_estimator(descriptor: ModelDescriptor) -> WeightEstimator:
 
 
 def build_huddling_detector(descriptor: ModelDescriptor) -> HuddlingDetector:
-    """Pick the right HuddlingDetector adapter based on descriptor type."""
+    """Pick the right HuddlingDetector adapter based on descriptor type.
+
+    Dispatch order:
+      1. Stub version → StubHuddlingDetector
+      2. `metadata.algorithm == "yolo-seg"`  → SegHuddlingDetector (mask-overlap)
+      3. `metadata.algorithm == "density"`   → DensityHuddlingDetector (CSRNet-style)
+      4. otherwise (or `algorithm == "dbscan"`) → DbscanHuddlingDetector (centroids)
+    """
     if descriptor.is_stub:
         from edge.inference.models.stub_huddling import StubHuddlingDetector  # noqa: PLC0415
 
         return StubHuddlingDetector(model_version=descriptor.reference)
+
+    algorithm = str(descriptor.metadata.get("algorithm", "dbscan")).lower()
+
+    if algorithm == "yolo-seg":
+        from edge.inference.models.seg_huddling_detector import (  # noqa: PLC0415
+            SegHuddlingDetector,
+        )
+
+        return SegHuddlingDetector(descriptor)
+
+    if algorithm == "density":
+        from edge.inference.models.density_huddling_detector import (  # noqa: PLC0415
+            DensityHuddlingDetector,
+        )
+
+        return DensityHuddlingDetector(descriptor)
 
     from edge.inference.models.huddling_detector import (  # noqa: PLC0415
         DbscanHuddlingDetector,

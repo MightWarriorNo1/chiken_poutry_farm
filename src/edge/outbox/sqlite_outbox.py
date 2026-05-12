@@ -39,6 +39,8 @@ class SqliteOutbox:
         self._db = await aiosqlite.connect(self._path)
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA synchronous=NORMAL")
+        # Wait up to 5s for the writer lock — the read_model shares this file.
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.executescript(_SCHEMA)
         await self._db.commit()
 

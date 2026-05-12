@@ -38,6 +38,10 @@ class InferenceSupervisor:
         self._loader = loader
         self._handlers = handlers
         self._current: dict[str, str] = {}  # model_name → version
+        # User-set per-model overrides (e.g. picked from the dashboard
+        # dropdown). When present, `apply()` ignores the YAML/cloud version
+        # for that model name and uses the override instead.
+        self._overrides: dict[str, str] = {}
 
     def versions(self) -> dict[str, str]:
         """Snapshot of currently-installed model versions, keyed by model name."""
@@ -46,10 +50,35 @@ class InferenceSupervisor:
     def current_version_for(self, model_name: str) -> str | None:
         return self._current.get(model_name)
 
+    def get_override(self, model_name: str) -> str | None:
+        return self._overrides.get(model_name)
+
+    def list_overrides(self) -> dict[str, str]:
+        return dict(self._overrides)
+
+    async def set_override(self, model_name: str, version: str) -> None:
+        """Pin this model to a version regardless of incoming config.
+
+        Idempotent — installing the already-current version is a no-op. If
+        the model name has no handler, the override is still remembered but
+        nothing installs.
+        """
+        self._overrides[model_name] = version
+        if model_name not in self._handlers:
+            return
+        if self._current.get(model_name) == version:
+            return
+        await self._install(model_name, version)
+
+    async def clear_override(self, model_name: str) -> None:
+        """Drop a user override. The next `apply()` will re-pick from config."""
+        self._overrides.pop(model_name, None)
+
     async def apply(self, ai_config: dict[str, Any]) -> None:
         for entry in self._iter_model_entries(ai_config):
             name = entry["name"]
-            version = entry["version"]
+            # User override (dashboard dropdown) trumps cloud/YAML config.
+            version = self._overrides.get(name, entry["version"])
             if name not in self._handlers:
                 continue  # unknown model name; not our job
             if self._current.get(name) == version:

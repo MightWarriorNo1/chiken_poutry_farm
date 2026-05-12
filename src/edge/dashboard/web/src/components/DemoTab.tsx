@@ -66,6 +66,9 @@ export function DemoTab() {
       qc.setQueryData(["demo", "status"], data);
       qc.invalidateQueries({ queryKey: ["cameraSources"] });
       qc.invalidateQueries({ queryKey: ["demo", "history"] });
+      // Auto-open the Live view modal so the user sees the running demo
+      // immediately — no manual "Live view" click needed.
+      setShowLive(true);
     },
   });
 
@@ -75,6 +78,7 @@ export function DemoTab() {
       qc.setQueryData(["demo", "status"], data);
       qc.invalidateQueries({ queryKey: ["cameraSources"] });
       qc.invalidateQueries({ queryKey: ["demo", "history"] });
+      setShowLive(true);
     },
   });
 

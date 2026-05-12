@@ -184,6 +184,11 @@ class SqliteReadModel:
         self._db.row_factory = aiosqlite.Row
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA synchronous=NORMAL")
+        # Wait up to 5s for a lock instead of erroring immediately. The outbox
+        # SqliteOutbox shares this file (one writer at a time across processes),
+        # so brief contention happens when the live camera + a demo + the
+        # sync pipeline all flush around the same instant.
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.executescript(_SCHEMA)
         await self._db.commit()
 

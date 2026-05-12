@@ -22,6 +22,7 @@ from edge.config import DashboardSettings
 from edge.dashboard.adhoc import AdhocManager
 from edge.dashboard.demo import DemoManager
 from edge.dashboard.event_bus import EventBus
+from edge.dashboard.inference_control import InferenceControl
 from edge.dashboard.read_model import ReadModel
 from edge.dashboard.server import (
     ThresholdProvider,
@@ -47,6 +48,7 @@ class DashboardPipeline:
         demo_manager: DemoManager | None = None,
         adhoc_manager: AdhocManager | None = None,
         demo_videos_dir: Path | None = None,
+        inference_control: InferenceControl | None = None,
     ) -> None:
         self._read_model = read_model
         self._event_bus = event_bus
@@ -58,6 +60,7 @@ class DashboardPipeline:
         self._demo_manager = demo_manager
         self._adhoc_manager = adhoc_manager
         self._demo_videos_dir = demo_videos_dir
+        self._inference_control = inference_control
 
     async def run(self) -> None:
         app = create_app(
@@ -71,6 +74,7 @@ class DashboardPipeline:
             demo_manager=self._demo_manager,
             adhoc_manager=self._adhoc_manager,
             demo_videos_dir=self._demo_videos_dir,
+            inference_control=self._inference_control,
         )
 
         config = uvicorn.Config(

@@ -1,0 +1,12 @@
+{
+  "name": "huddling-detector",
+  "version": "0.2.0-seg",
+  "framework": "ultralytics-yolov8-seg",
+  "format": "pytorch",
+  "algorithm": "yolo-seg",
+  "artifact": "model.pt",
+  "input": {"shape": [1, 3, 640, 640]},
+  "dilate_px": 30,
+  "thresholds": {"confidence": 0.25, "iou": 0.45},
+  "notes": "Place a YOLOv8-seg trained on chicken polygon labels at model.pt. Until then this version reports `available: false` in the dashboard and is unselectable."
+}

@@ -4,6 +4,7 @@ import { Bird, CircleAlert, Gauge, Scale, Thermometer } from "lucide-react";
 import { api } from "../api";
 import { fmtInt, fmtNumber, fmtPct, fmtUnit, severityClass } from "../format";
 import { Empty } from "./Empty";
+import { HuddlingMethodSelector } from "./HuddlingMethodSelector";
 
 export function OverviewTab() {
   const cameras = useQuery({
@@ -34,6 +35,13 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      <section>
+        <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
+          Inference
+        </h2>
+        <HuddlingMethodSelector />
+      </section>
+
       <section>
         <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
           Flock at a glance
