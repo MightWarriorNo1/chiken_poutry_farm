@@ -81,8 +81,15 @@ async def amain(settings: Settings) -> None:
     inner_outbox = SqliteOutbox(settings.storage.outbox_path)
     await inner_outbox.init()
 
-    cloud = HttpCloudSync(settings.cloud)
-    await cloud.start()
+    # Cloud is optional — when disabled, no HTTP client is opened, no
+    # SyncPipeline runs, and events accumulate locally in the SqliteOutbox.
+    cloud: HttpCloudSync | None = None
+    if settings.cloud.enabled:
+        cloud = HttpCloudSync(settings.cloud)
+        await cloud.start()
+        log.info("cloud.enabled", base_url=settings.cloud.base_url)
+    else:
+        log.info("cloud.disabled", reason="EDGE_CLOUD__ENABLED=false")
 
     # ── Alerts: rules + engine + outbox wrapper ────────────────────────────
     sensor_oor_rule = SensorOutOfRangeRule(device_id=settings.device_id)
@@ -162,22 +169,31 @@ async def amain(settings: Settings) -> None:
         outbox=outbox,
         interval_seconds=settings.cadence.heartbeat_interval_seconds,
     )
-    # Sync drains the inner outbox directly — no need to round-trip through the wrapper.
-    sync_pipe = SyncPipeline(
-        outbox=inner_outbox,
-        cloud=cloud,
-        batch_size=settings.cadence.sync_batch_size,
-        flush_interval_seconds=settings.cadence.sync_flush_interval_seconds,
-    )
+    # Sync drains the inner outbox directly — only built when cloud is enabled.
+    sync_pipe: SyncPipeline | None = None
+    if cloud is not None:
+        sync_pipe = SyncPipeline(
+            outbox=inner_outbox,
+            cloud=cloud,
+            batch_size=settings.cadence.sync_batch_size,
+            flush_interval_seconds=settings.cadence.sync_flush_interval_seconds,
+        )
 
     # ── Config source: prefer static YAML when set, else poll the cloud ─────
+    # With cloud disabled, a static_config_path is mandatory — there's no
+    # other way to learn about cameras/sensors/AI models.
     config_source: EdgeConfigSource
     if settings.static_config_path is not None:
         log.info("config.source", kind="yaml", path=str(settings.static_config_path))
         config_source = YamlConfigSource(settings.static_config_path)
-    else:
+    elif cloud is not None:
         log.info("config.source", kind="http", base_url=settings.cloud.base_url)
         config_source = HttpConfigSource(cloud)
+    else:
+        raise RuntimeError(
+            "No EdgeConfig source: cloud is disabled (EDGE_CLOUD__ENABLED=false) "
+            "and EDGE_STATIC_CONFIG_PATH is not set. Set one or the other."
+        )
 
     # ── Run ────────────────────────────────────────────────────────────────
     try:
@@ -244,7 +260,8 @@ async def amain(settings: Settings) -> None:
             )
 
             tg.start_soon(heartbeat_pipe.run)
-            tg.start_soon(sync_pipe.run)
+            if sync_pipe is not None:
+                tg.start_soon(sync_pipe.run)
             tg.start_soon(alert_engine.run)
             tg.start_soon(config_pipe.run)
 
@@ -269,7 +286,8 @@ async def amain(settings: Settings) -> None:
 
             tg.start_soon(_install_signal_handler, tg.cancel_scope)
     finally:
-        await cloud.close()
+        if cloud is not None:
+            await cloud.close()
         await read_model.close()
         await inner_outbox.close()
         log.info("edge.stopped")

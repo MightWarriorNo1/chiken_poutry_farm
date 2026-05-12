@@ -16,6 +16,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class CloudSettings(BaseModel):
+    """Cloud-sync transport. Toggle with EDGE_CLOUD__ENABLED.
+
+    When `enabled=False` the edge does not open the HTTP client, does not
+    start the SyncPipeline, and falls back to a local-only EdgeConfig source
+    (`static_config_path`). Events still accumulate in the local outbox —
+    they just never leave the device.
+    """
+
+    enabled: bool = True
     base_url: str = "http://localhost:8080"
     ingest_path: str = "/v1/ingest"
     config_path: str = "/v1/edge/config"
