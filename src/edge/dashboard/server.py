@@ -54,6 +54,7 @@ from edge.dashboard.views import (
     CameraSourceView,
     CameraView,
     DemoImageView,
+    DemoRunView,
     DemoStartImageRequest,
     DemoStartRequest,
     DemoStatusView,
@@ -384,6 +385,18 @@ def _build_demo_router() -> APIRouter:
     async def stop(request: Request) -> DemoStatusView:
         mgr = _require_manager(request)
         return await mgr.stop()
+
+    @r.get("/demo/history", response_model=list[DemoRunView])
+    async def history(
+        request: Request, limit: int = Query(default=50, ge=1, le=200)
+    ) -> list[DemoRunView]:
+        mgr = _require_manager(request)
+        # Manager exposes its underlying history store; if missing, return [].
+        store = getattr(mgr, "_history", None)
+        if store is None:
+            return []
+        runs = await store.list_runs(limit=limit)
+        return [DemoRunView(**r.__dict__) for r in runs]
 
     return r
 

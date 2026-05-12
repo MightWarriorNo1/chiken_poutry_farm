@@ -27,6 +27,7 @@ from typing import Any
 import anyio
 import structlog
 
+from edge.dashboard.demo_history import DemoHistoryStore
 from edge.dashboard.read_model import ReadModel
 from edge.dashboard.views import DemoImageView, DemoStatusView, DemoVideoView
 from edge.supervisors.camera_supervisor import CameraSupervisor
@@ -126,15 +127,18 @@ class DemoManager:
         images_dir: Path,
         camera_supervisor: CameraSupervisor,
         read_model: ReadModel,
+        history_store: DemoHistoryStore | None = None,
         defaults: DemoCameraDefaults = _default_defaults,
     ) -> None:
         self._videos_dir = videos_dir
         self._images_dir = images_dir
         self._supervisor = camera_supervisor
         self._read_model = read_model
+        self._history = history_store
         self._defaults = defaults
         self._lock = anyio.Lock()
         self._current: _DemoJob | None = None
+        self._current_run_id: str | None = None
         self._last_completed: _LastCompleted | None = None
         # Register completion hook so we self-clean when the video runs out.
         self._supervisor.set_on_complete(self._on_pipeline_complete)
@@ -228,6 +232,7 @@ class DemoManager:
         # set_extras takes the supervisor lock; call it outside our own lock
         # to keep nesting predictable.
         await self._supervisor.set_extras([cam_cfg])
+        await self._record_begin(kind="video", name=video)
         return await self.status()
 
     async def start_image(self, image: str) -> DemoStatusView:
@@ -261,6 +266,7 @@ class DemoManager:
             log.info("demo.start", kind="image", name=image, path=str(target))
 
         await self._supervisor.set_extras([cam_cfg])
+        await self._record_begin(kind="image", name=image)
         return await self.status()
 
     async def stop(self) -> DemoStatusView:
@@ -269,9 +275,12 @@ class DemoManager:
                 # Idempotent: stopping when nothing is running is a no-op.
                 return await self._build_status_locked()
             name = self._current.name
+            run_id = self._current_run_id
             self._current = None
+            self._current_run_id = None
             log.info("demo.stop", name=name)
         await self._supervisor.set_extras([])
+        await self._record_end(run_id, reason="stopped")
         return await self.status()
 
     async def status(self) -> DemoStatusView:
@@ -355,10 +364,45 @@ class DemoManager:
                 name=self._current.name,
                 completed_at=datetime.now(timezone.utc),
             )
+            run_id = self._current_run_id
             log.info("demo.complete", kind=self._current.kind, name=self._current.name)
             self._current = None
+            self._current_run_id = None
         # Clear extras (supervisor takes its own lock).
         try:
             await self._supervisor.set_extras([])
         except Exception as exc:  # noqa: BLE001
             log.exception("demo.cleanup.failed", error=str(exc))
+        await self._record_end(run_id, reason="completed")
+
+    async def _record_begin(self, *, kind: str, name: str) -> None:
+        """Stamp a new history entry; remember its id for `_record_end`."""
+        if self._history is None:
+            return
+        async with self._lock:
+            started_at = self._current.started_at if self._current is not None else (
+                datetime.now(timezone.utc)
+            )
+        try:
+            run_id = await self._history.begin_run(
+                kind=kind, name=name, started_at=started_at
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("demo_history.begin.failed", error=str(exc))
+            return
+        async with self._lock:
+            # `_current` may already be None if the user clicked Stop very
+            # quickly — that's fine, _record_end will skip the lookup too.
+            self._current_run_id = run_id
+
+    async def _record_end(self, run_id: str | None, *, reason: str) -> None:
+        if self._history is None or run_id is None:
+            return
+        try:
+            await self._history.end_run(
+                run_id,
+                ended_at=datetime.now(timezone.utc),
+                reason=reason,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("demo_history.end.failed", error=str(exc))

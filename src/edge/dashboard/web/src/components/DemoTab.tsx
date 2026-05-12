@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Film,
+  History,
   Image as ImageIcon,
   Loader2,
   PlayCircle,
@@ -11,8 +13,13 @@ import {
 import { useState } from "react";
 
 import { api } from "../api";
-import { fmtInt, fmtNumber, fmtPct } from "../format";
-import type { DemoImageView, DemoStatusView, DemoVideoView } from "../types";
+import { fmtInt, fmtNumber, fmtPct, relativeTime } from "../format";
+import type {
+  DemoImageView,
+  DemoRunView,
+  DemoStatusView,
+  DemoVideoView,
+} from "../types";
 import { Empty } from "./Empty";
 import { LiveView } from "./LiveView";
 
@@ -45,12 +52,20 @@ export function DemoTab() {
     // Aggressive while running so the progress bar feels live.
     refetchInterval: (q) => (q.state.data?.running ? 1_000 : 5_000),
   });
+  const history = useQuery({
+    queryKey: ["demo", "history"],
+    queryFn: () => api.demoHistory(50),
+    // Refresh when a demo finishes so the new entry appears promptly.
+    refetchInterval: (q) =>
+      status.data?.running ? 30_000 : q.state.data ? 10_000 : 5_000,
+  });
 
   const startMut = useMutation({
     mutationFn: (video: string) => api.demoStart(video),
     onSuccess: (data) => {
       qc.setQueryData(["demo", "status"], data);
       qc.invalidateQueries({ queryKey: ["cameraSources"] });
+      qc.invalidateQueries({ queryKey: ["demo", "history"] });
     },
   });
 
@@ -59,6 +74,7 @@ export function DemoTab() {
     onSuccess: (data) => {
       qc.setQueryData(["demo", "status"], data);
       qc.invalidateQueries({ queryKey: ["cameraSources"] });
+      qc.invalidateQueries({ queryKey: ["demo", "history"] });
     },
   });
 
@@ -67,6 +83,11 @@ export function DemoTab() {
     onSuccess: (data) => {
       qc.setQueryData(["demo", "status"], data);
       qc.invalidateQueries({ queryKey: ["cameraSources"] });
+      // Run history needs a brief moment so the backend can finalize stats.
+      setTimeout(
+        () => qc.invalidateQueries({ queryKey: ["demo", "history"] }),
+        800,
+      );
     },
   });
 
@@ -166,12 +187,103 @@ export function DemoTab() {
         )}
       </section>
 
+      <section>
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <History className="h-3.5 w-3.5" />
+          Run history
+        </h3>
+        {history.isLoading ? (
+          <div className="text-sm text-slate-500">Loading…</div>
+        ) : !history.data || history.data.length === 0 ? (
+          <div className="card text-sm text-slate-500">
+            No demo runs yet. Start a recording or test image above.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {history.data.map((run) => (
+              <HistoryRow key={run.id} run={run} />
+            ))}
+          </div>
+        )}
+      </section>
+
       {showLive && status.data?.running && status.data.camera_id && (
         <LiveView
           cameraId={status.data.camera_id}
           onClose={() => setShowLive(false)}
         />
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface HistoryRowProps {
+  run: DemoRunView;
+}
+
+function HistoryRow({ run }: HistoryRowProps) {
+  const inProgress = !run.ended_at;
+  const duration =
+    run.ended_at && run.started_at
+      ? (new Date(run.ended_at).getTime() -
+          new Date(run.started_at).getTime()) /
+        1000
+      : null;
+
+  const reasonBadge =
+    run.ended_reason === "completed" ? (
+      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+        completed
+      </span>
+    ) : run.ended_reason === "stopped" ? (
+      <span className="rounded-full bg-slate-700/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-300">
+        stopped
+      </span>
+    ) : inProgress ? (
+      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-300">
+        incomplete
+      </span>
+    ) : null;
+
+  return (
+    <div className="card flex items-center gap-3 py-3">
+      <div className="flex-shrink-0">
+        {run.kind === "image" ? (
+          <ImageIcon className="h-4 w-4 text-amber-400" />
+        ) : (
+          <Film className="h-4 w-4 text-violet-400" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
+          <span className="truncate" title={run.name}>
+            {run.name}
+          </span>
+          {reasonBadge}
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 tabular-nums">
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {relativeTime(run.started_at)}
+          </span>
+          {duration !== null && (
+            <span>
+              {duration < 60
+                ? `${duration.toFixed(0)} s`
+                : `${(duration / 60).toFixed(1)} min`}
+            </span>
+          )}
+          {run.frame_count != null && <span>{run.frame_count} frames</span>}
+          {run.bird_count_avg != null && (
+            <span>avg {run.bird_count_avg.toFixed(1)} birds</span>
+          )}
+          {run.bird_count_max != null && (
+            <span>max {run.bird_count_max}</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -36,6 +36,7 @@ from edge.config_sources.source import EdgeConfigSource
 from edge.config_sources.yaml_config_source import YamlConfigSource
 from edge.dashboard.adhoc import AdhocManager
 from edge.dashboard.demo import DemoManager
+from edge.dashboard.demo_history import DemoHistoryStore
 from edge.dashboard.event_bus import EventBus
 from edge.dashboard.projecting_outbox import ProjectingOutbox
 from edge.dashboard.server import threshold_provider_from_supervisor
@@ -248,6 +249,13 @@ async def amain(settings: Settings) -> None:
 
             demo_videos_dir = Path("demo/recordings")
             demo_images_dir = Path("demo/images")
+            # Persistent run history — surfaces past demos in the dashboard's
+            # "Run history" section. Lives next to the demo SQLite outbox.
+            demo_history = DemoHistoryStore(
+                path=settings.storage.outbox_path.parent / "demo_history.json",
+                demo_outbox_path=demo_outbox_path,
+            )
+            await demo_history.load()
             # DemoManager hooks the supervisor's completion callback in __init__
             # so a finished demo video clears the extras overlay automatically.
             # Image demos loop until Stop, so they don't fire the completion
@@ -257,6 +265,7 @@ async def amain(settings: Settings) -> None:
                 images_dir=demo_images_dir,
                 camera_supervisor=camera_sup,
                 read_model=read_model,
+                history_store=demo_history,
             )
             # AdhocManager handles user-initiated ad-hoc cameras (Sources tab).
             # Both demo and adhoc compete for the supervisor's single `extras`

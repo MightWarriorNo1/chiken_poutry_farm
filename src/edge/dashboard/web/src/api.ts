@@ -5,6 +5,7 @@ import type {
   CameraSourceView,
   CameraView,
   DemoImageView,
+  DemoRunView,
   DemoStatusView,
   DemoVideoView,
   DiscoverSourceType,
@@ -76,6 +77,8 @@ export const api = {
   demoStartImage: (image: string) =>
     postJSON<DemoStatusView>("/api/demo/start-image", { image }),
   demoStop: () => postJSON<DemoStatusView>("/api/demo/stop", {}),
+  demoHistory: (limit = 50) =>
+    getJSON<DemoRunView[]>(`/api/demo/history?limit=${limit}`),
 
   // ── Phase 4 — discovery + ad-hoc cameras ────────────────────────────────
   discoverTypes: () => getJSON<string[]>("/api/discover/types"),

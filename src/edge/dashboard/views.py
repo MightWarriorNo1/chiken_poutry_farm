@@ -243,6 +243,20 @@ class DemoStartImageRequest(_View):
     image: str
 
 
+class DemoRunView(_View):
+    """One entry in the demo run history (GET /api/demo/history)."""
+
+    id: str
+    kind: str                                # "video" | "image"
+    name: str
+    started_at: datetime
+    ended_at: datetime | None = None
+    ended_reason: str | None = None          # "stopped" | "completed" | None
+    frame_count: int | None = None
+    bird_count_avg: float | None = None
+    bird_count_max: int | None = None
+
+
 # ── Sources / camera discovery (Phase 4) ────────────────────────────────────
 
 
