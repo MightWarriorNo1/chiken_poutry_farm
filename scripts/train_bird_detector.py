@@ -49,6 +49,37 @@ DEFAULT_WEIGHTS = REPO_ROOT / "models" / "bird-detector" / "1.0.0" / "model.pt"
 DEFAULT_DATA = REPO_ROOT / "datasets" / "bird-detector.yaml"
 
 
+def _normalize_data_yaml(yaml_path: Path) -> Path:
+    """Rewrite the dataset YAML with an absolute `path:` and return its location.
+
+    Ultralytics resolves a relative `path:` against its **global** datasets_dir
+    setting (`~/.config/Ultralytics/settings.json`), NOT against the YAML file's
+    own directory — a foot-gun when the same YAML is shared across machines.
+    We materialise a normalized copy under `runs/` so the checked-in YAML stays
+    portable (relative paths only).
+    """
+    import yaml  # noqa: PLC0415  — pyyaml is a core dep
+
+    cfg = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    raw_path = cfg.get("path", ".")
+    base = Path(str(raw_path)).expanduser()
+    if not base.is_absolute():
+        base = (yaml_path.parent / base).resolve()
+    if not base.is_dir():
+        raise FileNotFoundError(
+            f"Dataset root resolved to {base} (from `path: {raw_path}` in "
+            f"{yaml_path}), but that directory does not exist. Did you run "
+            "scripts/prepare_chicken_pose_dataset.py?"
+        )
+    cfg["path"] = str(base)
+
+    out_dir = REPO_ROOT / "runs"
+    out_dir.mkdir(exist_ok=True)
+    out_path = out_dir / f"_normalized_{yaml_path.stem}.yaml"
+    out_path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    return out_path
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
@@ -98,11 +129,21 @@ def main() -> int:
         print("Install training deps with: pip install -e '.[ai]'", file=sys.stderr)
         return 1
 
-    data_path = args.data.resolve()
-    if not data_path.is_file():
-        print(f"Dataset YAML not found: {data_path}", file=sys.stderr)
+    source_data_path = args.data.resolve()
+    if not source_data_path.is_file():
+        print(f"Dataset YAML not found: {source_data_path}", file=sys.stderr)
         print("See datasets/bird-detector.yaml for the expected layout.", file=sys.stderr)
         return 1
+
+    # Normalize the YAML's `path:` to an absolute directory. Ultralytics' YAML
+    # loader resolves relative paths against its global datasets_dir, so we
+    # rewrite to an absolute path here to keep the checked-in YAML portable.
+    try:
+        data_path = _normalize_data_yaml(source_data_path)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"▶ Normalized data YAML: {data_path}")
 
     run_name = args.name or f"bird-detector-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     print(f"▶ Loading weights: {args.weights}")
@@ -190,7 +231,11 @@ def main() -> int:
         },
         "classes": [{"id": 0, "name": "chicken"}],
         "thresholds": {"confidence": 0.25, "iou": 0.45},
-        "trained_on": str(data_path.relative_to(REPO_ROOT)) if data_path.is_relative_to(REPO_ROOT) else str(data_path),
+        "trained_on": (
+            str(source_data_path.relative_to(REPO_ROOT))
+            if source_data_path.is_relative_to(REPO_ROOT)
+            else str(source_data_path)
+        ),
         "base_weights": args.weights,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "training": {

@@ -1,0 +1,6 @@
+path: E:\OriginE\(D-drive)\D\VJ\NowIPlayWIthChicken\chiken_poutry_farm\datasets\chicken-pose-all
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: chicken
