@@ -117,6 +117,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip copying best.pt + metadata into models/bird-detector/<version>/.",
     )
+    p.add_argument(
+        "--from-run",
+        type=Path,
+        default=None,
+        help=(
+            "Skip training entirely; finalize from an existing run dir "
+            "(e.g. runs/detect/runs/train/bird-detector-20260513-042056/). "
+            "Useful for recovering from a post-training failure (ONNX export, etc.)."
+        ),
+    )
     return p.parse_args()
 
 
@@ -145,37 +155,46 @@ def main() -> int:
         return 1
     print(f"▶ Normalized data YAML: {data_path}")
 
-    run_name = args.name or f"bird-detector-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    print(f"▶ Loading weights: {args.weights}")
-    model = YOLO(args.weights)
+    if args.from_run is not None:
+        # Recovery / re-finalize path: skip training, use an existing run dir.
+        run_dir = args.from_run.resolve()
+        best_pt = run_dir / "weights" / "best.pt"
+        if not best_pt.is_file():
+            print(f"--from-run: best.pt missing at {best_pt}", file=sys.stderr)
+            return 1
+        print(f"▶ Skipping training, finalizing from: {run_dir}")
+    else:
+        run_name = args.name or f"bird-detector-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        print(f"▶ Loading weights: {args.weights}")
+        model = YOLO(args.weights)
 
-    print(f"▶ Training on {data_path} → runs/train/{run_name}/")
-    train_results = model.train(
-        data=str(data_path),
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        patience=args.patience,
-        device=args.device or None,
-        workers=args.workers,
-        project="runs/train",
-        name=run_name,
-        seed=args.seed,
-        # Fine-tune-friendly defaults. Light augmentation; chickens don't
-        # benefit from aggressive mosaics in confined shed scenes.
-        cos_lr=True,
-        amp=True,
-        mosaic=0.5,
-        close_mosaic=10,
-        exist_ok=False,
-    )
+        print(f"▶ Training on {data_path} → runs/train/{run_name}/")
+        train_results = model.train(
+            data=str(data_path),
+            epochs=args.epochs,
+            imgsz=args.imgsz,
+            batch=args.batch,
+            patience=args.patience,
+            device=args.device or None,
+            workers=args.workers,
+            project="runs/train",
+            name=run_name,
+            seed=args.seed,
+            # Fine-tune-friendly defaults. Light augmentation; chickens don't
+            # benefit from aggressive mosaics in confined shed scenes.
+            cos_lr=True,
+            amp=True,
+            mosaic=0.5,
+            close_mosaic=10,
+            exist_ok=False,
+        )
 
-    # `train_results.save_dir` points to runs/train/<name>/.
-    run_dir = Path(getattr(train_results, "save_dir", REPO_ROOT / "runs" / "train" / run_name))
-    best_pt = run_dir / "weights" / "best.pt"
-    if not best_pt.is_file():
-        print(f"Training finished but best.pt missing at {best_pt}", file=sys.stderr)
-        return 2
+        # `train_results.save_dir` points to runs/train/<name>/.
+        run_dir = Path(getattr(train_results, "save_dir", REPO_ROOT / "runs" / "train" / run_name))
+        best_pt = run_dir / "weights" / "best.pt"
+        if not best_pt.is_file():
+            print(f"Training finished but best.pt missing at {best_pt}", file=sys.stderr)
+            return 2
 
     # Validation pass on best.pt for honest metrics (Ultralytics already does
     # one at the end of training, but re-running gives us a stable handle to
@@ -200,12 +219,25 @@ def main() -> int:
     onnx_dst: Path | None = None
     if not args.no_export:
         print("▶ Exporting ONNX (simplified, opset 17)")
-        onnx_path = Path(val_model.export(format="onnx", imgsz=args.imgsz, opset=17, simplify=True))
-        onnx_dst = target_dir / "model.onnx"
-        if onnx_dst.exists():
-            onnx_dst.unlink()
-        shutil.move(str(onnx_path), str(onnx_dst))
-        print(f"✓ ONNX:          {onnx_dst}")
+        try:
+            onnx_path = Path(val_model.export(format="onnx", imgsz=args.imgsz, opset=17, simplify=True))
+            onnx_dst = target_dir / "model.onnx"
+            if onnx_dst.exists():
+                onnx_dst.unlink()
+            shutil.move(str(onnx_path), str(onnx_dst))
+            print(f"✓ ONNX:          {onnx_dst}")
+        except Exception as exc:  # noqa: BLE001
+            # ONNX export is best-effort: on Jetson the runtime uses model.pt
+            # (torch.cuda) anyway. Common failure mode is missing onnx / onnxslim;
+            # the user can `pip install onnx onnxslim` and re-run with --from-run.
+            print(
+                f"⚠ ONNX export failed ({type(exc).__name__}: {exc}). "
+                "Continuing with model.pt only; on Jetson the inference factory "
+                "uses the .pt artifact regardless. To produce ONNX later: "
+                "`pip install onnx onnxslim` then re-run with "
+                f"`--from-run {run_dir}`.",
+                file=sys.stderr,
+            )
 
     # Metrics — Ultralytics exposes them on the results.box namespace.
     box = getattr(val_results, "box", None)
@@ -248,9 +280,16 @@ def main() -> int:
         "metrics": metrics,
         "notes": (
             f"Fine-tuned from {args.weights}. Single-class chicken detector "
-            "(class 0). Both model.pt and model.onnx ship in this folder; the "
-            "inference factory picks the .pt path on Jetson (torch.cuda) and "
-            "falls back to .onnx elsewhere."
+            "(class 0). "
+            + (
+                "Both model.pt and model.onnx ship in this folder; the "
+                "inference factory picks the .pt path on Jetson (torch.cuda) "
+                "and falls back to .onnx elsewhere."
+                if onnx_dst is not None
+                else "Only model.pt was produced (ONNX export skipped or failed). "
+                "Jetson runtime uses the .pt artifact via torch.cuda; install "
+                "`onnx` + `onnxslim` and re-run with `--from-run` to emit ONNX."
+            )
         ),
     }
     (target_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
