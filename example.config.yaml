@@ -70,7 +70,7 @@ ai:
     # → torch.cuda on the Jetson iGPU. Falls back to the stub automatically
     # if the artifact is missing (look for `StubBirdDetector` in boot logs).
     - name: bird-detector
-      version: "1.0.0"
+      version: "1.1.0"
     # Heuristic weight estimator works out of the box (no artifact required).
     - name: weight-estimator
       version: "0.1.0"
