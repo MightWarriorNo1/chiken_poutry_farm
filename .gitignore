@@ -36,6 +36,15 @@ Thumbs.db
 *.log
 data/
 runs/                    # ultralytics training outputs
+# Training image/label data — large, license-encumbered. Keep the YAML config
+# tracked, but everything under datasets/<name>/ stays local.
+datasets/*/
+!datasets/*.yaml
+# Raw Roboflow dataset exports dropped at the repo root (e.g.
+# "Chicken pose all.v1i.yolov8/"). Staged via scripts/prepare_chicken_pose_dataset.py.
+/Chicken pose all.v1i.yolov8/
+/*.v1i.yolov8/
+/*.zip
 yolov8n.pt               # ultralytics download cache (project root)
 yolov8n.onnx
 models/**/*.onnx         # model binaries — store via Git LFS or external registry
