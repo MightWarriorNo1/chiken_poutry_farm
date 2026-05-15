@@ -43,10 +43,15 @@ class VersionInfo:
 
 # Friendly labels for known algorithm tags.
 _DISPLAY_NAMES: dict[str, str] = {
+    # Huddling
     "dbscan": "DBSCAN — centroid clustering",
     "yolo-seg": "YOLOv8-seg — mask-overlap clustering",
     "density": "Density estimation — CSRNet-style heatmap",
-    "heuristic": "Heuristic (config-only)",
+    # Weight
+    "heuristic": "Heuristic — breed/age growth curve",
+    "bbox-area": "Bbox-area — linear regression",
+    "cnn-regression": "CNN — per-bird image regression",
+    # Generic
     "stub": "Stub (synthetic placeholder)",
 }
 
@@ -180,12 +185,15 @@ class InferenceControl:
         algorithm = str(metadata.get("algorithm", "")).lower() or "unknown"
         # Heuristic vs ML
         format_ = str(metadata.get("format", "")).lower()
-        requires_artifact = algorithm in {"yolo-seg", "density"} or (
+        # Algorithms that load a torch artifact off disk:
+        ml_algorithms = {"yolo-seg", "density", "cnn-regression"}
+        requires_artifact = algorithm in ml_algorithms or (
             format_ not in {"config-only", "stub"}
         )
 
         # Special-case the known config-only families so labels are friendly.
-        if format_ == "config-only" and algorithm in {"dbscan", "heuristic"}:
+        config_only_algos = {"dbscan", "heuristic", "bbox-area"}
+        if format_ == "config-only" and algorithm in config_only_algos:
             requires_artifact = False
 
         if requires_artifact:

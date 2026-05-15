@@ -35,9 +35,18 @@ class StubBirdDetector:
 
     async def detect(self, frame: Frame) -> BirdDetection:
         n = self._rng.randint(self._min, self._max)
-        centroids: list[tuple[float, float]] = [
-            (self._rng.random(), self._rng.random()) for _ in range(n)
-        ]
+        centroids: list[tuple[float, float]] = []
+        bboxes: list[tuple[float, float, float, float]] = []
+        for _ in range(n):
+            cx = self._rng.random()
+            cy = self._rng.random()
+            # Synthesize a plausible chicken-sized bbox: ~3-6% of frame width,
+            # ~4-8% of frame height. Density isn't realistic but at least the
+            # area-regression downstream gets something non-degenerate.
+            bw = self._rng.uniform(0.03, 0.06)
+            bh = self._rng.uniform(0.04, 0.08)
+            centroids.append((cx, cy))
+            bboxes.append((cx, cy, bw, bh))
         return BirdDetection(
             device_id="",  # filled in by the pipeline
             camera_id=frame.camera_id,
@@ -49,4 +58,5 @@ class StubBirdDetector:
             density_score=min(1.0, n / 150.0),
             confidence=round(self._rng.uniform(0.72, 0.94), 3),
             bbox_centroids=centroids,
+            bboxes=bboxes,
         )

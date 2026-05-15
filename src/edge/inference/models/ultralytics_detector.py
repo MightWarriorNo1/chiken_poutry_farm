@@ -97,7 +97,7 @@ class UltralyticsBirdDetector:
         if self._model is None:
             await self.start()
 
-        bird_count, mean_conf, centroids = await anyio.to_thread.run_sync(
+        bird_count, mean_conf, centroids, bboxes = await anyio.to_thread.run_sync(
             self._infer, frame.image, frame.width, frame.height
         )
 
@@ -111,6 +111,7 @@ class UltralyticsBirdDetector:
             density_score=self._density_score(bird_count, frame.width, frame.height),
             confidence=mean_conf,
             bbox_centroids=centroids,
+            bboxes=bboxes,
         )
 
     # ── private inference plumbing ─────────────────────────────────────────
@@ -119,7 +120,12 @@ class UltralyticsBirdDetector:
         image: np.ndarray,
         orig_w: int,
         orig_h: int,
-    ) -> tuple[int, float, list[tuple[float, float]]]:
+    ) -> tuple[
+        int,
+        float,
+        list[tuple[float, float]],
+        list[tuple[float, float, float, float]],
+    ]:
         assert self._model is not None
 
         results = self._model.predict(
@@ -150,19 +156,21 @@ class UltralyticsBirdDetector:
             conf = np.asarray(r.boxes.conf, dtype=np.float32)
 
         if xywh.size == 0:
-            return 0, 0.0, []
+            return 0, 0.0, [], []
 
-        cx = xywh[:, 0]
-        cy = xywh[:, 1]
         # Normalize + clamp to [0, 1] for the BirdDetection schema.
-        centroids: list[tuple[float, float]] = [
-            (
-                float(np.clip(x / max(orig_w, 1), 0.0, 1.0)),
-                float(np.clip(y / max(orig_h, 1), 0.0, 1.0)),
-            )
-            for x, y in zip(cx.tolist(), cy.tolist(), strict=True)
-        ]
-        return len(centroids), float(np.mean(conf)), centroids
+        w_norm = max(orig_w, 1)
+        h_norm = max(orig_h, 1)
+        centroids: list[tuple[float, float]] = []
+        bboxes: list[tuple[float, float, float, float]] = []
+        for cx_p, cy_p, bw_p, bh_p in xywh.tolist():
+            cx = float(np.clip(cx_p / w_norm, 0.0, 1.0))
+            cy = float(np.clip(cy_p / h_norm, 0.0, 1.0))
+            bw = float(np.clip(bw_p / w_norm, 0.0, 1.0))
+            bh = float(np.clip(bh_p / h_norm, 0.0, 1.0))
+            centroids.append((cx, cy))
+            bboxes.append((cx, cy, bw, bh))
+        return len(centroids), float(np.mean(conf)), centroids, bboxes
 
     @staticmethod
     def _density_score(bird_count: int, w: int, h: int) -> float:

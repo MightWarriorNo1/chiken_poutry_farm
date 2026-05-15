@@ -4,7 +4,7 @@ import { Bird, CircleAlert, Gauge, Scale, Thermometer } from "lucide-react";
 import { api } from "../api";
 import { fmtInt, fmtNumber, fmtPct, fmtUnit, severityClass } from "../format";
 import { Empty } from "./Empty";
-import { HuddlingMethodSelector } from "./HuddlingMethodSelector";
+import { InferenceMethodSelector } from "./InferenceMethodSelector";
 
 export function OverviewTab() {
   const cameras = useQuery({
@@ -39,7 +39,18 @@ export function OverviewTab() {
         <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
           Inference
         </h2>
-        <HuddlingMethodSelector />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <InferenceMethodSelector
+            modelName="huddling-detector"
+            title="Huddling method"
+            description="Algorithm that converts bird positions into a huddling score."
+          />
+          <InferenceMethodSelector
+            modelName="weight-estimator"
+            title="Weight method"
+            description="How average chicken weight is estimated each frame."
+          />
+        </div>
       </section>
 
       <section>

@@ -1,0 +1,15 @@
+{
+  "name": "weight-estimator",
+  "version": "0.2.0-area",
+  "framework": "linear-regression",
+  "format": "config-only",
+  "algorithm": "bbox-area",
+  "regression": {
+    "slope": 0.0,
+    "intercept": 0.0
+  },
+  "camera_calibration": {},
+  "fallback_ref_area_px": 10000.0,
+  "baseline_confidence": 0.55,
+  "notes": "Bbox-area regression. Placeholder slope/intercept of 0 means it'll output 0g until you calibrate. To calibrate: catch ~30 chickens across the age range, weigh them, snap the camera frame at catch-time, and fit sklearn LinearRegression on (normalized_bbox_area, weight_g) pairs. Paste the resulting slope + intercept here. Per-camera ref_area_px can be the median bbox area of a known-weight chicken in that camera, used to normalize across cameras with different mount heights."
+}

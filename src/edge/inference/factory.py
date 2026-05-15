@@ -72,13 +72,36 @@ def _trt_runtime_available() -> bool:
 
 
 def build_weight_estimator(descriptor: ModelDescriptor) -> WeightEstimator:
-    """Pick the right WeightEstimator adapter based on descriptor type."""
+    """Pick the right WeightEstimator adapter based on descriptor type.
+
+    Dispatch order:
+      1. Stub version → StubWeightEstimator
+      2. `metadata.algorithm == "bbox-area"`      → AreaRegressionWeightEstimator
+      3. `metadata.algorithm == "cnn-regression"` → CnnWeightEstimator
+      4. otherwise (or `algorithm == "heuristic"`)→ HeuristicWeightEstimator
+    """
     if descriptor.is_stub:
         from edge.inference.models.stub_weight_estimator import (  # noqa: PLC0415
             StubWeightEstimator,
         )
 
         return StubWeightEstimator(model_version=descriptor.reference)
+
+    algorithm = str(descriptor.metadata.get("algorithm", "heuristic")).lower()
+
+    if algorithm == "bbox-area":
+        from edge.inference.models.area_weight_estimator import (  # noqa: PLC0415
+            AreaRegressionWeightEstimator,
+        )
+
+        return AreaRegressionWeightEstimator(descriptor)
+
+    if algorithm == "cnn-regression":
+        from edge.inference.models.cnn_weight_estimator import (  # noqa: PLC0415
+            CnnWeightEstimator,
+        )
+
+        return CnnWeightEstimator(descriptor)
 
     from edge.inference.models.weight_estimator import (  # noqa: PLC0415
         HeuristicWeightEstimator,

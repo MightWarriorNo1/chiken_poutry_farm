@@ -103,7 +103,7 @@ class YoloBirdDetector:
         if self._session is None:
             await self.start()
 
-        bird_count, mean_conf, centroids = await anyio.to_thread.run_sync(
+        bird_count, mean_conf, centroids, bboxes = await anyio.to_thread.run_sync(
             self._infer, frame.image, frame.width, frame.height
         )
 
@@ -117,6 +117,7 @@ class YoloBirdDetector:
             density_score=self._density_score(bird_count, frame.width, frame.height),
             confidence=mean_conf,
             bbox_centroids=centroids,
+            bboxes=bboxes,
         )
 
     # ── private inference plumbing ─────────────────────────────────────────
@@ -125,7 +126,12 @@ class YoloBirdDetector:
         image: np.ndarray,
         orig_w: int,
         orig_h: int,
-    ) -> tuple[int, float, list[tuple[float, float]]]:
+    ) -> tuple[
+        int,
+        float,
+        list[tuple[float, float]],
+        list[tuple[float, float, float, float]],
+    ]:
         import cv2  # noqa: PLC0415
 
         assert self._session is not None and self._input_name is not None
@@ -169,7 +175,7 @@ class YoloBirdDetector:
         boxes = boxes[keep]
         scores = max_scores[keep]
         if len(boxes) == 0:
-            return 0, 0.0, []
+            return 0, 0.0, [], []
 
         # 5. NMS — cv2 wants (x, y, w, h) in pixel space + python lists.
         xc, yc, bw, bh = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
@@ -181,24 +187,33 @@ class YoloBirdDetector:
             self._iou_threshold,
         )
         if len(keep_idx) == 0:
-            return 0, 0.0, []
+            return 0, 0.0, [], []
         keep_idx = np.asarray(keep_idx).flatten()
         boxes = boxes[keep_idx]
         scores = scores[keep_idx]
 
-        # 6. Centroids back to original image, normalized + clamped.
+        # 6. Centroids + bboxes back to original image, normalized + clamped.
         centroids: list[tuple[float, float]] = []
-        for cx_640, cy_640 in zip(boxes[:, 0].tolist(), boxes[:, 1].tolist(), strict=True):
+        bboxes: list[tuple[float, float, float, float]] = []
+        for cx_640, cy_640, w_640, h_640 in zip(
+            boxes[:, 0].tolist(),
+            boxes[:, 1].tolist(),
+            boxes[:, 2].tolist(),
+            boxes[:, 3].tolist(),
+            strict=True,
+        ):
             cx_orig = (cx_640 - pad_x) / scale
             cy_orig = (cy_640 - pad_y) / scale
-            centroids.append(
-                (
-                    float(np.clip(cx_orig / orig_w, 0.0, 1.0)),
-                    float(np.clip(cy_orig / orig_h, 0.0, 1.0)),
-                )
-            )
+            w_orig = w_640 / scale
+            h_orig = h_640 / scale
+            cx_n = float(np.clip(cx_orig / orig_w, 0.0, 1.0))
+            cy_n = float(np.clip(cy_orig / orig_h, 0.0, 1.0))
+            w_n = float(np.clip(w_orig / orig_w, 0.0, 1.0))
+            h_n = float(np.clip(h_orig / orig_h, 0.0, 1.0))
+            centroids.append((cx_n, cy_n))
+            bboxes.append((cx_n, cy_n, w_n, h_n))
 
-        return len(centroids), float(np.mean(scores)), centroids
+        return len(centroids), float(np.mean(scores)), centroids, bboxes
 
     @staticmethod
     def _density_score(bird_count: int, w: int, h: int) -> float:

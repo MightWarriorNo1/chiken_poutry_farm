@@ -30,6 +30,11 @@ class BirdDetection(_BaseAIResult):
     density_score: float = Field(ge=0, le=1)
     confidence: float = Field(ge=0, le=1)
     bbox_centroids: list[tuple[float, float]] = Field(default_factory=list)
+    # Per-bird bounding boxes in (cx, cy, w, h), all normalized to [0, 1] in
+    # image coordinates. Empty for legacy events / stubs that didn't populate
+    # them; consumers should fall back gracefully when missing. Length, when
+    # non-empty, matches `bbox_centroids` 1-to-1.
+    bboxes: list[tuple[float, float, float, float]] = Field(default_factory=list)
 
 
 class WeightEstimate(_BaseAIResult):
