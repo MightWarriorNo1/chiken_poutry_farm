@@ -1,0 +1,15 @@
+{
+  "name": "weight-estimator",
+  "version": "0.4.0-mask-area",
+  "framework": "ultralytics-yolov8-seg",
+  "format": "pytorch",
+  "algorithm": "mask-area",
+  "artifact": "model.pt",
+  "input": {"shape": [1, 3, 640, 640]},
+  "regression": {"slope": 0.0, "intercept": 0.0},
+  "camera_calibration": {},
+  "fallback_ref_area_px": 10000.0,
+  "thresholds": {"confidence": 0.25, "iou": 0.45},
+  "baseline_confidence": 0.65,
+  "notes": "Mask-area regression. Same YOLOv8-seg .pt as huddling-detector/0.2.0-seg can be used — segmentation training serves both purposes. Fit slope/intercept from (normalized_mask_area_px, weighed_weight_g) pairs via sklearn LinearRegression. Until model.pt + non-zero regression coefficients are provided, this version reports `available: false` in the dashboard and is unselectable."
+}

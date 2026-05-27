@@ -31,29 +31,42 @@ models/
 ## Training the bird-detector
 
 ```bash
-# 1. Drop your labeled data under datasets/bird-detector/ in YOLO format:
-#       datasets/bird-detector/images/{train,val,test}/*.jpg
-#       datasets/bird-detector/labels/{train,val,test}/*.txt   (class 0 = chicken)
-#    See datasets/bird-detector.yaml for the full layout spec.
+# 1. Get the dataset onto the training machine. Pick one:
+#
+#    (a) Pull directly from Roboflow on-device (preferred — no manual copy):
+pip install --user roboflow
+export ROBOFLOW_API_KEY=xxx     # from https://app.roboflow.com/settings/api
+python scripts/download_roboflow_dataset.py \
+    --url https://universe.roboflow.com/thesis-3c51t/chicken-counting/dataset/18 \
+    --name chicken-counting
+#    (auto-stages into datasets/chicken-counting/)
 
-# 2. Fine-tune from the current v1.0.0 checkpoint (YOLOv8n, chicken-tuned):
-python scripts/train_bird_detector.py \
-    --data datasets/bird-detector.yaml \
-    --epochs 80 --imgsz 640 --version 1.1.0
+#    (b) Or, if the raw Roboflow folder is already on disk:
+python scripts/prepare_yolo_dataset.py \
+    --src "Chicken Counting.v18-chicken.yolov8" --name chicken-counting
 
-# Or start from a larger COCO base (slower, needs more data, won't fit
-# Jetson Nano realtime — only for off-device inference):
+# 2. Fine-tune. Default --data is datasets/bird-detector.yaml, which points
+#    at the active staged dataset. Start from v1.0.0 (the chicken-aware
+#    baseline) — earlier fine-tunes can be regenerated from this baseline.
 python scripts/train_bird_detector.py \
-    --weights yolov8m.pt --data datasets/bird-detector.yaml \
-    --epochs 100 --version 1.1.0
+    --weights models/bird-detector/1.0.0/model.pt \
+    --epochs 80 --version 1.2.0
+
+# Recover from a post-training failure (e.g. ONNX export crash) without
+# retraining — finalize from an existing run dir:
+python scripts/train_bird_detector.py \
+    --from-run runs/detect/runs/train/bird-detector-<timestamp> \
+    --version 1.2.0
 
 # 3. Promote and bump device config:
-cd models/bird-detector && ln -snf 1.1.0 latest
+cd models/bird-detector && ln -snf 1.2.0 latest
+# Then edit your /etc/prosper-edge/config.yaml or ./config.yaml so the
+# bird-detector entry uses version: "1.2.0".
 ```
 
-The script writes `model.pt`, `model.onnx`, `metadata.json`, and an `eval.md`
-stub into `models/bird-detector/<version>/`. Inspect the eval metrics and
-spot-check predictions before promoting `latest`.
+The train script writes `model.pt`, `model.onnx` (best-effort), `metadata.json`,
+and an `eval.md` stub into `models/bird-detector/<version>/`. Inspect the eval
+metrics and spot-check on real shed footage before promoting `latest`.
 
 ## metadata.json template
 

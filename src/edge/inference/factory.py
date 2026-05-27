@@ -96,6 +96,13 @@ def build_weight_estimator(descriptor: ModelDescriptor) -> WeightEstimator:
 
         return AreaRegressionWeightEstimator(descriptor)
 
+    if algorithm == "mask-area":
+        from edge.inference.models.mask_area_weight_estimator import (  # noqa: PLC0415
+            MaskAreaWeightEstimator,
+        )
+
+        return MaskAreaWeightEstimator(descriptor)
+
     if algorithm == "cnn-regression":
         from edge.inference.models.cnn_weight_estimator import (  # noqa: PLC0415
             CnnWeightEstimator,

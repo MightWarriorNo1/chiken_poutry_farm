@@ -1,11 +1,15 @@
 # Default training-data pointer for scripts/train_bird_detector.py.
 #
-# This file just re-exports whichever staged dataset is currently active.
-# Today: the Roboflow "Chicken pose all" v1 export (1014 images), remapped
-# to single class 0 = chicken by scripts/prepare_chicken_pose_dataset.py.
+# This file re-exports whichever staged dataset is currently the training
+# baseline. The train script's _normalize_data_yaml() rewrites `./<name>`
+# into an absolute path at runtime, so this YAML stays portable across
+# machines (Windows dev box, Jetson Orin, etc.).
+#
+# Active baseline: "Chicken Counting" v18 (Roboflow, CC BY 4.0, 5303 images).
+# Previous staged dataset for reference: ./chicken-pose-all (Cornell, 1014 imgs).
 #
 # To swap datasets, either:
-#   (a) re-run the prep script with a different --src, or
+#   (a) re-run scripts/prepare_yolo_dataset.py with a different --src/--name, or
 #   (b) point the train script at a different YAML directly:
 #       python scripts/train_bird_detector.py --data path/to/other.yaml ...
 #
@@ -14,7 +18,7 @@
 # All values normalized to [0, 1]. `class_id` MUST be 0 to stay compatible
 # with v1.0.0 metadata and the inference factory (src/edge/inference/).
 
-path: ./chicken-pose-all
+path: ./chicken-counting
 train: images/train
 val: images/val
 test: images/test

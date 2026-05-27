@@ -50,6 +50,7 @@ _DISPLAY_NAMES: dict[str, str] = {
     # Weight
     "heuristic": "Heuristic — breed/age growth curve",
     "bbox-area": "Bbox-area — linear regression",
+    "mask-area": "Mask-area — YOLOv8-seg + linear regression",
     "cnn-regression": "CNN — per-bird image regression",
     # Generic
     "stub": "Stub (synthetic placeholder)",
@@ -186,7 +187,7 @@ class InferenceControl:
         # Heuristic vs ML
         format_ = str(metadata.get("format", "")).lower()
         # Algorithms that load a torch artifact off disk:
-        ml_algorithms = {"yolo-seg", "density", "cnn-regression"}
+        ml_algorithms = {"yolo-seg", "density", "cnn-regression", "mask-area"}
         requires_artifact = algorithm in ml_algorithms or (
             format_ not in {"config-only", "stub"}
         )
