@@ -35,7 +35,8 @@ Thumbs.db
 .env.local
 *.log
 data/
-runs/                    # ultralytics training outputs
+# Ultralytics training outputs (weights, plots, per-epoch logs).
+runs/
 # Training image/label data — large, license-encumbered. Keep the YAML config
 # tracked, but everything under datasets/<name>/ stays local.
 datasets/*/
@@ -48,14 +49,17 @@ datasets/*/
 /*.v1i.yolov8/
 /*.v*-chicken.yolov8/
 /*.zip
-yolov8n.pt               # ultralytics download cache (project root)
+# Ultralytics download cache (project root).
+yolov8n.pt
 yolov8n.onnx
-models/**/*.onnx         # model binaries — store via Git LFS or external registry
-models/**/*.pt
+# Model binaries — store via Git LFS or an external registry, not in git.
+!models/**/*.onnx
+!models/**/*.pt
 !models/**/metadata.json
 !models/**/eval.md
 !models/**/README.md
-outbox.db                # local edge SQLite outbox
+# Local edge SQLite outbox.
+outbox.db
 outbox.db-journal
 outbox.db-wal
 outbox.db-shm

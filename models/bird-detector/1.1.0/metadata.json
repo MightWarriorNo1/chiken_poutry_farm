@@ -1,0 +1,46 @@
+{
+  "name": "bird-detector",
+  "version": "1.1.0",
+  "framework": "ultralytics-yolov8",
+  "format": "pytorch",
+  "artifact": "model.pt",
+  "input": {
+    "shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "dtype": "float32",
+    "layout": "nchw",
+    "color_space": "rgb",
+    "normalize": "0-1"
+  },
+  "classes": [
+    {
+      "id": 0,
+      "name": "chicken"
+    }
+  ],
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.45
+  },
+  "trained_on": "datasets/bird-detector.yaml",
+  "base_weights": "models/bird-detector/1.0.0/model.pt",
+  "exported_at": "2026-05-27T10:40:03.904539+00:00",
+  "training": {
+    "epochs": 80,
+    "imgsz": 640,
+    "batch": 8,
+    "seed": 0,
+    "run_dir": "runs/detect/runs/train/bird-detector-20260527-022229"
+  },
+  "metrics": {
+    "mAP50": 0.8089024263477014,
+    "mAP50_95": 0.4420540845585922,
+    "precision": 0.8312416843877464,
+    "recall": 0.7467336683417085
+  },
+  "notes": "Fine-tuned from models/bird-detector/1.0.0/model.pt. Single-class chicken detector (class 0). Both model.pt and model.onnx ship in this folder; the inference factory picks the .pt path on Jetson (torch.cuda) and falls back to .onnx elsewhere."
+}
