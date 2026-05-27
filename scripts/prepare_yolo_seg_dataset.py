@@ -1,0 +1,205 @@
+"""Stage a Roboflow YOLOv8 *segmentation* dataset for single-class chicken training.
+
+Sister script to `prepare_yolo_dataset.py` (which is for bounding-box detection).
+That one slices each label line to the first 5 fields — fine for boxes, fatal
+for polygons. This one preserves every polygon vertex.
+
+Source layout (Roboflow YOLOv8-segmentation export):
+    <src>/{train,valid,test}/images/*.jpg
+    <src>/{train,valid,test}/labels/*.txt
+    # Each label line: <cls> x1 y1 x2 y2 x3 y3 ... xN yN
+    # All coordinates normalized to [0, 1].
+
+Target layout (Ultralytics-friendly, single class):
+    datasets/<name>/
+      images/{train,val,test}/*.jpg
+      labels/{train,val,test}/*.txt   # all classes remapped to 0 = chicken
+      data.yaml                        # absolute `path:` so ultralytics finds it
+
+Idempotent: re-running refreshes labels and skips already-present images.
+
+Examples
+--------
+    # Chicken v18 segmentation export (the one we just downloaded):
+    python scripts/prepare_yolo_seg_dataset.py \\
+        --src "Chicken.v18i.yolov8" --name chicken-seg
+
+    # Then point the training script at the staged data.yaml:
+    yolo train task=segment model=yolov8n-seg.pt \\
+        data=datasets/chicken-seg/data.yaml \\
+        epochs=80 imgsz=640 batch=8 device=0 cache=ram
+
+Any class id in the source labels is rewritten to `0` — the inference factory
+expects `classes: [{id: 0, name: chicken}]` in metadata.json, same convention
+as the detection model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_SRC = REPO_ROOT / "Chicken.v18i.yolov8"
+DEFAULT_NAME = "chicken-seg"
+
+# Roboflow → Ultralytics split-name mapping. Roboflow uses `valid`; we use `val`.
+SPLIT_MAP = {"train": "train", "valid": "val", "test": "test"}
+
+
+def remap_seg_label_file(
+    src_path: Path, dst_path: Path, target_class: int = 0
+) -> tuple[int, int]:
+    """Copy a YOLO-segmentation label file with every class id rewritten to
+    `target_class`. Preserves the entire polygon (all xy pairs), unlike the
+    detection version which truncates after 4 coords.
+
+    Returns (polygons_written, polygons_skipped).
+    """
+    written = 0
+    skipped = 0
+    lines_out: list[str] = []
+    for raw in src_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        # Segmentation labels: <cls> x1 y1 x2 y2 ... xN yN — minimum 3 points
+        # (a triangle) ⇒ 1 + 2×3 = 7 columns.
+        if len(parts) < 7 or (len(parts) - 1) % 2 != 0:
+            skipped += 1
+            continue
+        # parts[1:] is the polygon coords; keep them all, just rewrite class id.
+        coords = parts[1:]
+        lines_out.append(f"{target_class} {' '.join(coords)}")
+        written += 1
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    dst_path.write_text("\n".join(lines_out) + ("\n" if lines_out else ""), encoding="utf-8")
+    return written, skipped
+
+
+def stage_split(
+    src_root: Path, dst_root: Path, src_split: str, dst_split: str
+) -> dict[str, int]:
+    src_images = src_root / src_split / "images"
+    src_labels = src_root / src_split / "labels"
+    dst_images = dst_root / "images" / dst_split
+    dst_labels = dst_root / "labels" / dst_split
+
+    if not src_images.is_dir():
+        raise FileNotFoundError(f"Missing source images dir: {src_images}")
+    if not src_labels.is_dir():
+        raise FileNotFoundError(f"Missing source labels dir: {src_labels}")
+
+    dst_images.mkdir(parents=True, exist_ok=True)
+    dst_labels.mkdir(parents=True, exist_ok=True)
+
+    stats = {
+        "images_copied": 0,
+        "images_skipped": 0,
+        "labels_written": 0,
+        "polygons_remapped": 0,
+        "polygons_skipped": 0,
+    }
+    for img in src_images.iterdir():
+        if not img.is_file():
+            continue
+        dst_img = dst_images / img.name
+        if dst_img.exists() and dst_img.stat().st_size == img.stat().st_size:
+            stats["images_skipped"] += 1
+        else:
+            shutil.copy2(img, dst_img)
+            stats["images_copied"] += 1
+
+        lbl = src_labels / (img.stem + ".txt")
+        if lbl.is_file():
+            written, skipped = remap_seg_label_file(lbl, dst_labels / lbl.name)
+            stats["labels_written"] += 1
+            stats["polygons_remapped"] += written
+            stats["polygons_skipped"] += skipped
+        else:
+            # Empty label file = image with no annotations. Mirror as empty.
+            (dst_labels / (img.stem + ".txt")).write_text("", encoding="utf-8")
+            stats["labels_written"] += 1
+
+    return stats
+
+
+def write_data_yaml(dst_root: Path, source_label: str) -> Path:
+    yaml_path = dst_root / "data.yaml"
+    yaml_path.write_text(
+        f"""# Auto-generated by scripts/prepare_yolo_seg_dataset.py.
+# Source: {source_label}
+# All classes remapped to single class 0 = chicken.
+# Use with: yolo train task=segment ...
+
+path: {dst_root.resolve().as_posix()}
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: chicken
+""",
+        encoding="utf-8",
+    )
+    return yaml_path
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument("--src", type=Path, default=DEFAULT_SRC, help="Roboflow export folder.")
+    p.add_argument(
+        "--name",
+        default=DEFAULT_NAME,
+        help="Staged dataset folder name under datasets/ (default: chicken-seg).",
+    )
+    p.add_argument(
+        "--dst",
+        type=Path,
+        default=None,
+        help="Override the staged dataset directory entirely. If unset, uses datasets/<name>/.",
+    )
+    args = p.parse_args()
+
+    src = args.src.resolve()
+    dst = (args.dst or (REPO_ROOT / "datasets" / args.name)).resolve()
+    if not src.is_dir():
+        print(f"Source folder not found: {src}", file=sys.stderr)
+        return 1
+
+    print(f"▶ Staging segmentation dataset: {src}")
+    print(f"                              → {dst}")
+    totals: dict[str, int] = {}
+    for src_split, dst_split in SPLIT_MAP.items():
+        if not (src / src_split).is_dir():
+            print(f"  · skip (missing): {src_split}")
+            continue
+        stats = stage_split(src, dst, src_split, dst_split)
+        print(
+            f"  · {src_split:<5} → {dst_split:<5}  "
+            f"images: {stats['images_copied']} copied / {stats['images_skipped']} kept   "
+            f"labels: {stats['labels_written']} files, "
+            f"{stats['polygons_remapped']} polygons (+ {stats['polygons_skipped']} skipped)"
+        )
+        for k, v in stats.items():
+            totals[k] = totals.get(k, 0) + v
+
+    yaml_path = write_data_yaml(dst, source_label=src.name)
+    print(f"\n✓ Wrote dataset YAML: {yaml_path}")
+    print(f"  totals: {totals}")
+    print(
+        f"\nNext:\n"
+        f"  yolo train task=segment model=yolov8n-seg.pt \\\n"
+        f"       data={yaml_path.relative_to(REPO_ROOT).as_posix()} \\\n"
+        f"       epochs=80 imgsz=640 batch=8 device=0 cache=ram patience=20"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

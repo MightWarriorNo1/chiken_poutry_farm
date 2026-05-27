@@ -46,6 +46,7 @@ datasets/*/
 # is used for training.
 /Chicken pose all.v1i.yolov8/
 /Chicken Counting.v18-chicken.yolov8/
+/Chicken.v18i.yolov8/
 /*.v1i.yolov8/
 /*.v*-chicken.yolov8/
 /*.zip
